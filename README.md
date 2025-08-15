@@ -54,10 +54,8 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Auto-refresh every 30 seconds
 - Live health state changes
 - Interactive status indicators
-- Copy-to-clipboard functionality
 
 ### 🎨 **Modern Interface**
-- Responsive, mobile-friendly design
 - Professional enterprise styling
 - Intuitive navigation
 - Accessibility features
