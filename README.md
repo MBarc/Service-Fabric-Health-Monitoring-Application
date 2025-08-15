@@ -2,10 +2,6 @@
 
 A lightweight, self-hosted monitoring dashboard for Azure Service Fabric clusters that integrates seamlessly with existing enterprise monitoring solutions.
 
-## 🎯 [**View Live Demo**](https://yourusername.github.io/service-fabric-dashboard/demo-dashboard.html)
-
-![Service Fabric Dashboard Overview](images/dashboard-overview.png)
-
 ## Problem Statement
 
 Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataDog**, **Splunk**, or **New Relic** across their entire infrastructure. While Azure Service Fabric can be monitored through the Azure Portal or Application Insights, organizations that don't already use these Microsoft-specific tools face a monitoring gap.
@@ -15,6 +11,12 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Integrated with your existing monitoring infrastructure
 - Accessed through your current dashboards and alerting systems
 - Used without requiring additional Azure subscriptions or Microsoft monitoring tools
+
+## Screenshots
+## / (home endpoint)
+## /health-dashboard
+## /health
+## /test
 
 ## Why This Solution?
 
@@ -54,15 +56,11 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Auto-refresh every 30 seconds
 - Live health state changes
 - Interactive status indicators
-- Copy-to-clipboard functionality
 
 ### 🎨 **Modern Interface**
-- Responsive, mobile-friendly design
 - Professional enterprise styling
 - Intuitive navigation
 - Accessibility features
-
-![Dashboard Features](images/dashboard-features.png)
 
 ## Quick Start
 
@@ -98,8 +96,10 @@ The dashboard exposes several endpoints for integration with your monitoring too
 |----------|-------------|---------|
 | `/` | Main dashboard interface | HTML |
 | `/health` | Cluster health summary | JSON |
+| `/health-dashboard` | Gerneral cluster information and health statuses | HTML |
+| `/test` | Service-specific Health Check Endpoint| HTML |
 
-### Sample API Response
+### Sample /health API Response
 ```json
 {
   "status": "healthy",
@@ -179,26 +179,6 @@ Modify the port in `ServiceManifest.xml` if needed:
 
 ### Mobile Responsive
 ![Mobile View](images/dashboard-mobile.png)
-
-## Use Cases
-
-### DevOps Teams
-- Monitor deployments and rollbacks
-- Track application health across environments
-- Quick cluster health checks
-- Troubleshoot deployment issues
-
-### Platform Engineering
-- Centralized cluster monitoring
-- Resource utilization tracking
-- Capacity planning insights
-- Multi-environment visibility
-
-### Enterprise Architecture
-- Standardized monitoring approach
-- Integration with existing tools
-- Compliance and audit support
-- Cost-effective monitoring solution
 
 ## Troubleshooting
 
