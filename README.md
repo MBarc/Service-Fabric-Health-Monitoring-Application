@@ -151,26 +151,6 @@ Modify the port in `ServiceManifest.xml` if needed:
 <Endpoint Name="ServiceEndpoint" Type="Input" Protocol="http" Port="8081" />
 ```
 
-## Enterprise Considerations
-
-### Security
-- Deploy within your network perimeter
-- Use Service Fabric security features
-- Implement authentication as needed
-- Consider HTTPS for production deployments
-
-### Scalability
-- Lightweight resource footprint
-- Scales with your Service Fabric cluster
-- Minimal performance impact
-- Configurable refresh intervals
-
-### Compliance
-- No external data transmission
-- Local data processing only
-- Audit trail capabilities
-- Compliance with corporate policies
-
 ## Screenshots
 
 ### Main Dashboard
@@ -219,12 +199,6 @@ We welcome contributions! Please:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/yourusername/service-fabric-dashboard/issues)
-- 💬 [Discussions](https://github.com/yourusername/service-fabric-dashboard/discussions)
 
 ---
 
