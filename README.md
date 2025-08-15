@@ -2,10 +2,6 @@
 
 A lightweight, self-hosted monitoring dashboard for Azure Service Fabric clusters that integrates seamlessly with existing enterprise monitoring solutions.
 
-## 🎯 [**View Live Demo**](https://yourusername.github.io/service-fabric-dashboard/demo-dashboard.html)
-
-![Service Fabric Dashboard Overview](images/dashboard-overview.png)
-
 ## Problem Statement
 
 Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataDog**, **Splunk**, or **New Relic** across their entire infrastructure. While Azure Service Fabric can be monitored through the Azure Portal or Application Insights, organizations that don't already use these Microsoft-specific tools face a monitoring gap.
