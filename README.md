@@ -151,20 +151,6 @@ Modify the port in `ServiceManifest.xml` if needed:
 <Endpoint Name="ServiceEndpoint" Type="Input" Protocol="http" Port="8081" />
 ```
 
-## Screenshots
-
-### Main Dashboard
-![Main Dashboard](images/dashboard-main.png)
-
-### Application View
-![Applications](images/dashboard-applications.png)
-
-### Node Details
-![Node Details](images/dashboard-nodes.png)
-
-### Mobile Responsive
-![Mobile View](images/dashboard-mobile.png)
-
 ## Troubleshooting
 
 ### Common Issues
