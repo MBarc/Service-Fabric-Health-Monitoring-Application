@@ -99,7 +99,7 @@ The dashboard exposes several endpoints for integration with your monitoring too
 | `/health-dashboard` | Gerneral cluster information and health statuses | HTML |
 | `/test` | Service-specific Health Check Endpoint| HTML |
 
-### Sample API Response
+### Sample /health API Response
 ```json
 {
   "status": "healthy",
