@@ -12,6 +12,12 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Accessed through your current dashboards and alerting systems
 - Used without requiring additional Azure subscriptions or Microsoft monitoring tools
 
+## Screenshots
+## / endpoint
+## /health-dashboard
+## /health
+## /test
+
 ## Why This Solution?
 
 ### ✅ **Enterprise Integration**
@@ -55,8 +61,6 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Professional enterprise styling
 - Intuitive navigation
 - Accessibility features
-
-![Dashboard Features](images/dashboard-features.png)
 
 ## Quick Start
 
