@@ -13,7 +13,7 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 - Used without requiring additional Azure subscriptions or Microsoft monitoring tools
 
 ## Screenshots
-## / endpoint
+## / (home endpoint)
 ## /health-dashboard
 ## /health
 ## /test
