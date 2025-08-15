@@ -1,6 +1,8 @@
-# Service Fabric Health Dashboard
-
-A lightweight, self-hosted monitoring dashboard for Azure Service Fabric clusters that integrates seamlessly with existing enterprise monitoring solutions.
+<div align="center">
+  <img src="https://docs.microsoft.com/en-us/azure/architecture/icons/service-fabric.svg" alt="Service Fabric Logo" width="120" height="120" style="border-radius: 50%;">
+Service Fabric Health Dashboard
+  <p><em>A lightweight, self-hosted monitoring dashboard for Azure Service Fabric clusters that integrates seamlessly with existing enterprise monitoring solutions.</em></p>
+</div>
 
 ## Problem Statement
 
