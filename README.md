@@ -14,9 +14,14 @@ Many enterprises standardize on monitoring solutions like **Dynatrace**, **DataD
 
 ## Screenshots
 ## / (home endpoint)
+![Home Endpoint](images/home.png)
 ## /health-dashboard
+![Health Dashboard Endpoint](images/health-dashboard.png)
+![Health Dashboard Endpoint](images/health-dashboard2.png)
 ## /health
+![Health Endpoint](images/health.png)
 ## /test
+![Test Endpoint](images/test.png)
 
 ## Why This Solution?
 
