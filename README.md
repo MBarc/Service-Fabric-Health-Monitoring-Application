@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="images/service%20fabric%20logo.jpg" alt="Service Fabric Logo" width="150" height="150" style="border-radius: 50%;">
+  <img src="images/service-fabric-logo.jpg" alt="Service Fabric Logo" width="150" height="150" style="border-radius: 50%;">
   <h1>Service Fabric Health Dashboard</h1>
   <p><em>A lightweight, self-hosted monitoring dashboard for Azure Service Fabric clusters that integrates seamlessly with existing enterprise monitoring solutions.</em></p>
 </div>
