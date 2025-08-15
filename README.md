@@ -96,7 +96,7 @@ The dashboard exposes several endpoints for integration with your monitoring too
 |----------|-------------|---------|
 | `/` | Main dashboard interface | HTML |
 | `/health` | Cluster health summary | JSON |
-| `/health-dashboard` | UI version of `/health` | HTML |
+| `/health-dashboard` | Gerneral cluster information and health statuses | HTML |
 | `/test` | Service-specific Health Check Endpoint| HTML |
 
 ### Sample API Response
