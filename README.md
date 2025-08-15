@@ -176,26 +176,6 @@ Modify the port in `ServiceManifest.xml` if needed:
 ### Mobile Responsive
 ![Mobile View](images/dashboard-mobile.png)
 
-## Use Cases
-
-### DevOps Teams
-- Monitor deployments and rollbacks
-- Track application health across environments
-- Quick cluster health checks
-- Troubleshoot deployment issues
-
-### Platform Engineering
-- Centralized cluster monitoring
-- Resource utilization tracking
-- Capacity planning insights
-- Multi-environment visibility
-
-### Enterprise Architecture
-- Standardized monitoring approach
-- Integration with existing tools
-- Compliance and audit support
-- Cost-effective monitoring solution
-
 ## Troubleshooting
 
 ### Common Issues
