@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "dgSpecHash": "mgjtcTpArsk=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\micha\\source\\repos\\TRPDashboard\\TRPDashboard.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric\\9.0.1017\\microsoft.servicefabric.9.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric.data\\6.0.1017\\microsoft.servicefabric.data.6.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric.data.extensions\\6.0.1017\\microsoft.servicefabric.data.extensions.6.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric.data.interfaces\\6.0.1017\\microsoft.servicefabric.data.interfaces.6.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric.diagnostics.internal\\6.0.1017\\microsoft.servicefabric.diagnostics.internal.6.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.servicefabric.services\\6.0.1017\\microsoft.servicefabric.services.6.0.1017.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\system.memory\\4.5.3\\system.memory.4.5.3.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\6.0.36\\microsoft.aspnetcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\6.0.36\\microsoft.windowsdesktop.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "C:\\Users\\micha\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\6.0.36\\microsoft.netcore.app.runtime.win-x64.6.0.36.nupkg.sha512"
+  ],
+  "logs": []
+}

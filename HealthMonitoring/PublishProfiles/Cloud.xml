@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<PublishProfile xmlns="http://schemas.microsoft.com/2015/05/fabrictools">
+	<ClusterConnectionParameters ConnectionEndpoint="hl-svfb-w-t-001:19000" />
+	<ApplicationParameterFile Path="..\ApplicationParameters\Cloud.xml" />
+	<CopyPackageParameters CompressPackage="true" />
+	<UpgradeDeployment Mode="Monitored" Enabled="true">
+		<Parameters
+		  FailureAction="Rollback"
+		  Force="true" />
+	</UpgradeDeployment>
+</PublishProfile>
