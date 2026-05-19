@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Fabric;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.ServiceFabric.Services.Communication.Runtime;
@@ -202,7 +203,8 @@ namespace TRPDashboard
             }
             catch (Exception ex)
             {
-                ServiceEventSource.Current.DashboardGenerationFailed(ex.Message);
+                // Log the full exception server-side; the page itself stays generic.
+                ServiceEventSource.Current.DashboardGenerationFailed(ex.ToString());
                 return GenerateErrorPage("Health Dashboard", ex);
             }
         }
@@ -249,18 +251,22 @@ namespace TRPDashboard
 </html>";
         }
 
+        private static readonly JsonSerializerOptions HealthJsonOptions = new JsonSerializerOptions { WriteIndented = true };
+
         private string GenerateHealthJson()
         {
-            return $@"{{
-    ""status"": ""healthy"",
-    ""timestamp"": ""{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}"",
-    ""serviceName"": ""{_serviceContext.ServiceName}"",
-    ""nodeName"": ""{_serviceContext.NodeContext.NodeName}"",
-    ""instanceId"": ""{_serviceContext.InstanceId}"",
-    ""applicationName"": ""{_serviceContext.CodePackageActivationContext.ApplicationName}"",
-    ""applicationTypeName"": ""{_serviceContext.CodePackageActivationContext.ApplicationTypeName}"",
-    ""version"": ""1.0.11""
-}}";
+            var payload = new
+            {
+                status = "healthy",
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                serviceName = _serviceContext.ServiceName.ToString(),
+                nodeName = _serviceContext.NodeContext.NodeName,
+                instanceId = _serviceContext.InstanceId,
+                applicationName = _serviceContext.CodePackageActivationContext.ApplicationName,
+                applicationTypeName = _serviceContext.CodePackageActivationContext.ApplicationTypeName,
+                version = _serviceContext.CodePackageActivationContext.CodePackageVersion,
+            };
+            return JsonSerializer.Serialize(payload, HealthJsonOptions);
         }
 
         private string GenerateTestPage()
@@ -269,7 +275,7 @@ namespace TRPDashboard
 <!DOCTYPE html>
 <html>
 <head>
-    <title>TRP Dashboard - Test Endpoint</title>
+    <title>Service Fabric Health Dashboard - Test Endpoint</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
         .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
@@ -283,7 +289,7 @@ namespace TRPDashboard
 </head>
 <body>
     <div class='container'>
-        <h1>TRP Dashboard - Test Endpoint</h1>
+        <h1>Service Fabric Health Dashboard - Test Endpoint</h1>
         <p><strong>Status:</strong> Service is running correctly!</p>
         <p><strong>Time:</strong> {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
         
@@ -318,7 +324,7 @@ namespace TRPDashboard
 <!DOCTYPE html>
 <html>
 <head>
-    <title>TRP Dashboard - Home</title>
+    <title>Service Fabric Health Dashboard - Home</title>
     <style>
         body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: linear-gradient(135deg, #0066CC 0%, #003087 100%); min-height: 100vh; }}
         .container {{ max-width: 1000px; margin: 0 auto; padding: 40px 20px; }}
@@ -337,8 +343,8 @@ namespace TRPDashboard
 <body>
     <div class='container'>
         <div class='header'>
-            <h1>Internal Department Name</h1>
-            <h2>TRP Documentation Dashboard</h2>
+            <h1>{System.Net.WebUtility.HtmlEncode(DashboardService.DEPARTMENT_NAME)}</h1>
+            <h2>Service Fabric Health Dashboard</h2>
             <span class='status'>Service Running</span>
             <p style='margin-top: 15px; color: #6B7280;'>Last Updated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
         </div>
@@ -369,30 +375,28 @@ namespace TRPDashboard
 
         private string GenerateErrorPage(string pageName, Exception ex)
         {
+            // Detail is logged via ServiceEventSource by the caller. The client only sees
+            // a generic page — never the exception type, message, or stack trace.
             return $@"
 <!DOCTYPE html>
 <html>
 <head>
-    <title>TRP Dashboard - Error</title>
+    <title>Service Fabric Health Dashboard - Error</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa; }}
         .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
         .error {{ background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 20px; border-radius: 5px; margin: 20px 0; }}
-        pre {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 0.9em; }}
         h1 {{ color: #721c24; }}
         .nav-links a {{ display: inline-block; margin-right: 15px; padding: 8px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
     </style>
 </head>
 <body>
     <div class='container'>
-        <h1>TRP Dashboard - {pageName} Error</h1>
+        <h1>{pageName} unavailable</h1>
         <div class='error'>
-            <h2>Error: {ex.GetType().Name}</h2>
-            <p><strong>Message:</strong> {ex.Message}</p>
+            <p>The dashboard could not render this page. The error has been logged for the operator.</p>
+            <p>Time (UTC): {DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</p>
         </div>
-        <h3>Stack Trace:</h3>
-        <pre>{ex.StackTrace}</pre>
-        <p><strong>Time:</strong> {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
         <div class='nav-links'>
             <a href='/health'>Health Check</a>
             <a href='/test'>Test Endpoint</a>
