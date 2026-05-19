@@ -174,6 +174,32 @@ Override default settings as needed.
     -CertFindValue "cluster.example.com"
 ```
 
+### Option 4: Secured Cluster (X509 Client Certificate)
+Most production Service Fabric clusters require client-cert auth. The deploy script accepts the server cert (to validate the cluster) and your client cert (to authenticate to it):
+
+```powershell
+.\Deploy-ServiceFabricApp.ps1 `
+    -ClusterEndpoint "secured-cluster.example.com:19000" `
+    -CertFindValue "secured-cluster.example.com" `
+    -ServerCertThumbprint "<cluster-server-cert-thumbprint>" `
+    -ClientCertThumbprint "<your-client-cert-thumbprint>"
+```
+
+The client certificate must be installed in `CurrentUser\My` on the machine running the deploy script, and the cluster must trust it (typically configured at cluster creation via the cluster's `ClientCertificateThumbprints` setting).
+
+### Option 5: Secured Cluster (Azure Active Directory)
+For Azure SF clusters with AAD integration enabled:
+
+```powershell
+.\Deploy-ServiceFabricApp.ps1 `
+    -ClusterEndpoint "myaadcluster.eastus.cloudapp.azure.com:19000" `
+    -CertFindValue "myaadcluster.eastus.cloudapp.azure.com" `
+    -ServerCertThumbprint "<cluster-server-cert-thumbprint>" `
+    -UseAAD
+```
+
+A browser sign-in pops up the first time; the token caches for subsequent runs. `-ServerCertThumbprint` is still required because AAD only handles the *client* identity — TLS to the cluster is still cert-based.
+
 ## Configuration
 
 ### Custom Branding

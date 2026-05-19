@@ -13,8 +13,38 @@ param(
     # match. Examples: "localhost" (dev), "mycluster.example.com" (prod).
     # The cert must exist in LocalMachine\My on every cluster node.
     [Parameter(Mandatory=$true)]
-    [string]$CertFindValue
+    [string]$CertFindValue,
+
+    # ------------------------------------------------------------------
+    # Optional cluster-auth params. Omit all three for an unsecured cluster
+    # (local dev clusters and some on-prem setups). For secured clusters,
+    # supply exactly ONE of the auth modes below plus -ServerCertThumbprint.
+    # ------------------------------------------------------------------
+
+    # Thumbprint of the cluster's server certificate. Required for both X509
+    # and AAD authentication; the deploy client validates the cluster's TLS
+    # cert against this. Comma-separated if the cluster presents multiple.
+    [string]$ServerCertThumbprint,
+
+    # Thumbprint of YOUR client certificate (X509 auth mode). The cert must
+    # exist in CurrentUser\My on the machine running this script and be
+    # trusted by the target cluster. Mutually exclusive with -UseAAD.
+    [string]$ClientCertThumbprint,
+
+    # Use Azure Active Directory authentication instead of client cert.
+    # Triggers an interactive sign-in (browser pop-up) the first time, then
+    # caches the token. Mutually exclusive with -ClientCertThumbprint.
+    [switch]$UseAAD
 )
+
+# Validate auth combinations early so we fail with a clear message rather
+# than a cryptic Connect-ServiceFabricCluster error 30 seconds in.
+if ($UseAAD -and $ClientCertThumbprint) {
+    throw "Cannot combine -UseAAD with -ClientCertThumbprint. Pick one auth mode."
+}
+if (($UseAAD -or $ClientCertThumbprint) -and -not $ServerCertThumbprint) {
+    throw "Secured-cluster auth requires -ServerCertThumbprint so the deploy client can validate the cluster's TLS cert."
+}
 
 # Get script location
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -100,8 +130,26 @@ try {
 # Connect to Service Fabric cluster
 Write-Host "`nConnecting to Service Fabric cluster: $ClusterEndpoint..." -ForegroundColor Yellow
 try {
-    # For unsecured clusters (common in dev/test environments)
-    Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint | Out-Null
+    if ($UseAAD) {
+        Write-Host "  Auth mode: Azure Active Directory" -ForegroundColor Gray
+        Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint `
+            -AzureActiveDirectory `
+            -ServerCertThumbprint $ServerCertThumbprint | Out-Null
+    }
+    elseif ($ClientCertThumbprint) {
+        Write-Host "  Auth mode: X509 client certificate" -ForegroundColor Gray
+        Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint `
+            -X509Credential `
+            -ServerCertThumbprint $ServerCertThumbprint `
+            -FindType FindByThumbprint `
+            -FindValue $ClientCertThumbprint `
+            -StoreLocation CurrentUser `
+            -StoreName My | Out-Null
+    }
+    else {
+        Write-Host "  Auth mode: Unsecured (no credentials)" -ForegroundColor Gray
+        Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint | Out-Null
+    }
     Write-Host "Connected to cluster successfully." -ForegroundColor Green
     
     # Display cluster info
@@ -115,14 +163,10 @@ try {
     Write-Host "ERROR: Failed to connect to Service Fabric cluster!" -ForegroundColor Red
     Write-Host "Cluster endpoint: $ClusterEndpoint" -ForegroundColor Red
     Write-Host "" -ForegroundColor Red
-    Write-Host "Troubleshooting steps:" -ForegroundColor Yellow
-    Write-Host "1. Verify the cluster endpoint is correct: $ClusterEndpoint" -ForegroundColor Yellow
-    Write-Host "2. Check if the cluster is running and accessible" -ForegroundColor Yellow
-    Write-Host "3. Verify network connectivity to the cluster" -ForegroundColor Yellow
-    Write-Host "4. If the cluster uses security, you may need additional connection parameters" -ForegroundColor Yellow
-    Write-Host "" -ForegroundColor Yellow
-    Write-Host "For secured clusters, you might need to use parameters like:" -ForegroundColor Yellow
-    Write-Host "  -X509Credential -ServerCertThumbprint <thumbprint> -FindType FindByThumbprint -FindValue <thumbprint> -StoreLocation CurrentUser -StoreName My" -ForegroundColor Yellow
+    Write-Host "Troubleshooting:" -ForegroundColor Yellow
+    Write-Host "  - Confirm the cluster endpoint, network reachability, and that the cluster is running." -ForegroundColor Yellow
+    Write-Host "  - For a secured cluster, supply -ServerCertThumbprint plus one of -ClientCertThumbprint" -ForegroundColor Yellow
+    Write-Host "    (X509 mode) or -UseAAD (Azure AD mode)." -ForegroundColor Yellow
     Write-Host "" -ForegroundColor Yellow
     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
