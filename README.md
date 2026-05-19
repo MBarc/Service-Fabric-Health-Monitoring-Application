@@ -82,17 +82,46 @@ git clone https://github.com/yourusername/service-fabric-dashboard.git
 cd service-fabric-dashboard
 ```
 
-### 2. Deploy to Your Cluster
-```powershell
-# For local cluster
-.\Deploy-ServiceFabricApp.ps1
+### 2. Provision a TLS Certificate
+The dashboard binds port 443 with TLS. Service Fabric needs a certificate to bind. For development or internal clusters, generate a self-signed cert:
 
-# For remote cluster
-.\Deploy-ServiceFabricApp.ps1 -ClusterEndpoint "your-cluster:19000"
+```powershell
+$cert = New-SelfSignedCertificate `
+    -DnsName "localhost" `
+    -CertStoreLocation "Cert:\LocalMachine\My" `
+    -KeyUsage DigitalSignature,KeyEncipherment `
+    -KeyAlgorithm RSA -KeyLength 2048 `
+    -NotAfter (Get-Date).AddYears(5) `
+    -FriendlyName "SF Dashboard Dev Cert"
+
+# Trust it so browsers don't warn
+$root = New-Object System.Security.Cryptography.X509Certificates.X509Store "Root", "LocalMachine"
+$root.Open("ReadWrite"); $root.Add($cert); $root.Close()
+
+$cert.Thumbprint
 ```
 
-### 3. Access the Dashboard
-Navigate to `http://your-cluster-node:8081` in your browser.
+Copy the thumbprint and paste it into `HealthMonitoring/ApplicationPackageRoot/ApplicationManifest.xml` under `<EndpointCertificate X509FindValue="…">`. For production, use a CA-signed certificate referenced the same way.
+
+### 3. Deploy to Your Cluster
+Pass the certificate's **subject name** (CN value) at deploy time. Service Fabric looks up the cert in `LocalMachine\My` on the host node and picks the most recent non-expired match — so cert rotations don't require redeployment.
+
+```powershell
+# Local cluster, self-signed cert with CN=localhost
+.\Deploy-ServiceFabricApp.ps1 -CertFindValue "localhost"
+
+# Remote cluster, reusing the cluster's existing cert
+.\Deploy-ServiceFabricApp.ps1 `
+    -ClusterEndpoint "your-cluster:19000" `
+    -CertFindValue "mycluster.example.com"
+```
+
+The cert must exist in `LocalMachine\My` on every cluster node. The deploy package itself is cluster-agnostic — the same package deploys anywhere; only the subject name changes.
+
+> **Prefer thumbprint lookup instead?** Edit `HealthMonitoring/ApplicationPackageRoot/ApplicationManifest.xml` and change `X509FindType="FindBySubjectName"` to `X509FindType="FindByThumbprint"`. Then pass the SHA1 thumbprint as `-CertFindValue`. Service Fabric's XSD doesn't allow parameterizing this attribute, so it's a manifest edit rather than a deploy-time flag.
+
+### 4. Access the Dashboard
+Navigate to `https://your-cluster-node` in your browser. (No port suffix — the dashboard listens on the standard HTTPS port.)
 
 That's it! The dashboard is now running on your Service Fabric cluster.
 
@@ -125,19 +154,24 @@ The dashboard exposes several endpoints for integration with your monitoring too
 ### Option 1: Local Development Cluster
 Perfect for testing and development environments.
 ```powershell
-.\Deploy-ServiceFabricApp.ps1
+.\Deploy-ServiceFabricApp.ps1 -CertFindValue "localhost"
 ```
 
 ### Option 2: Remote Cluster
 Deploy to your production or staging clusters.
 ```powershell
-.\Deploy-ServiceFabricApp.ps1 -ClusterEndpoint "production-cluster:19000"
+.\Deploy-ServiceFabricApp.ps1 `
+    -ClusterEndpoint "production-cluster:19000" `
+    -CertFindValue "production-cluster.example.com"
 ```
 
 ### Option 3: Custom Configuration
 Override default settings as needed.
 ```powershell
-.\Deploy-ServiceFabricApp.ps1 -Configuration "Release" -ClusterEndpoint "cluster:19000"
+.\Deploy-ServiceFabricApp.ps1 `
+    -Configuration "Release" `
+    -ClusterEndpoint "cluster:19000" `
+    -CertFindValue "cluster.example.com"
 ```
 
 ## Configuration
@@ -151,12 +185,12 @@ private const string DEPARTMENT_NAME = "Your Organization Name";
 ### Port Configuration
 Modify the port in `ServiceManifest.xml` if needed:
 ```xml
-<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="http" Port="8081" />
+<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="https" Port="443" />
 ```
 
 ## Security
 
-The dashboard binds to `http://+:8081/` (all network interfaces) with **no authentication**. Anyone who can reach port 8081 on a cluster node can:
+The dashboard binds to `https://+:443/` (all network interfaces) with **TLS but no authentication**. Anyone who can reach port 443 on a cluster node — and accepts the TLS certificate — can:
 
 - View cluster topology (node names, IP/FQDN, fault/upgrade domains)
 - View deployed applications and services and their health states
@@ -167,7 +201,8 @@ The dashboard is **read-only** — it does not expose any mutation endpoints —
 **Recommended deployment**:
 
 - Run on clusters whose network is already restricted (private VNet, on-prem segmented network, behind a corporate firewall).
-- Restrict port 8081 inbound traffic to operator subnets via Network Security Group / firewall rules.
+- Restrict port 443 inbound traffic to operator subnets via Network Security Group / firewall rules.
+- Provision a real CA-signed TLS certificate for production (the sample setup uses a self-signed dev cert in `LocalMachine\My`, referenced by thumbprint in `ApplicationManifest.xml`).
 - If you need broader access, place the dashboard behind a reverse proxy that enforces authentication (e.g. nginx with OAuth2-proxy, Azure Application Gateway with AAD).
 - Do **not** expose the dashboard directly to the public internet.
 
@@ -177,7 +212,7 @@ The dashboard is **read-only** — it does not expose any mutation endpoints —
 
 **Dashboard not accessible:**
 - Verify Service Fabric cluster is running
-- Check firewall settings for port 8081
+- Check firewall settings for port 443
 - Ensure the application deployed successfully
 
 **Deployment fails:**

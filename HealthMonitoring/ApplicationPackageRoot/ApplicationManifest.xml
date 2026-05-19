@@ -2,10 +2,22 @@
 <ApplicationManifest xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ApplicationTypeName="HealthMonitoringType" ApplicationTypeVersion="1.0.30" xmlns="http://schemas.microsoft.com/2011/01/fabric">
   <Parameters>
     <Parameter Name="TRPDashboard_InstanceCount" DefaultValue="-1" />
+    <!-- Subject (CN) of the TLS cert used to bind the dashboard's HTTPS
+         endpoint. SF substring-matches this against certs in LocalMachine\My
+         and picks the most recent non-expired match, so cert rotations do
+         not require redeployment as long as the new cert has the same subject.
+         Pass at deploy time via -CertFindValue, e.g. "localhost" or "mycluster.example.com".
+         Defaults to empty so deployment fails fast if the operator forgets. -->
+    <Parameter Name="CertFindValue" DefaultValue="" />
   </Parameters>
   <ServiceManifestImport>
     <ServiceManifestRef ServiceManifestName="TRPDashboardPkg" ServiceManifestVersion="1.0.30" />
-    <!-- No ConfigOverrides needed -->
+    <Policies>
+      <!-- Binds the TLS cert below to the ServiceEndpoint. SF performs
+           `netsh http add sslcert` automatically when the service activates
+           and grants the service identity access to the cert's private key. -->
+      <EndpointBindingPolicy EndpointRef="ServiceEndpoint" CertificateRef="DashboardCert" />
+    </Policies>
   </ServiceManifestImport>
   <DefaultServices>
     <Service Name="TRPDashboard" ServicePackageActivationMode="ExclusiveProcess">
@@ -14,4 +26,10 @@
       </StatelessService>
     </Service>
   </DefaultServices>
+  <Certificates>
+    <EndpointCertificate Name="DashboardCert"
+                         X509FindType="FindBySubjectName"
+                         X509FindValue="[CertFindValue]"
+                         X509StoreName="My" />
+  </Certificates>
 </ApplicationManifest>

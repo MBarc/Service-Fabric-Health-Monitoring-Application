@@ -5,7 +5,15 @@ param(
     [string]$Configuration = "Debug",
     [string]$AppName = "fabric:/HealthMonitoring",
     [string]$AppTypeName = "HealthMonitoringType",
-    [string]$ClusterEndpoint = "localhost:19000"
+    [string]$ClusterEndpoint = "localhost:19000",
+
+    # Subject name (CN value) of the TLS cert that SF should bind to the dashboard's
+    # 443 endpoint. SF does substring matching against certs in LocalMachine\My on
+    # the node where the service activates, then picks the most recent non-expired
+    # match. Examples: "localhost" (dev), "mycluster.example.com" (prod).
+    # The cert must exist in LocalMachine\My on every cluster node.
+    [Parameter(Mandatory=$true)]
+    [string]$CertFindValue
 )
 
 # Get script location
@@ -197,8 +205,10 @@ try {
 }
 
 Write-Host "`nCreating application instance..." -ForegroundColor Yellow
+Write-Host "  Cert subject name: $CertFindValue" -ForegroundColor Gray
 try {
-    New-ServiceFabricApplication -ApplicationName $AppName -ApplicationTypeName $AppTypeName -ApplicationTypeVersion $version
+    $appParams = @{ CertFindValue = $CertFindValue }
+    New-ServiceFabricApplication -ApplicationName $AppName -ApplicationTypeName $AppTypeName -ApplicationTypeVersion $version -ApplicationParameter $appParams
     Write-Host "Application created successfully." -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to create application!" -ForegroundColor Red

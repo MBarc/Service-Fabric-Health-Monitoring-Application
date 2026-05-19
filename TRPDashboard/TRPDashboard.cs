@@ -48,10 +48,9 @@ namespace TRPDashboard
             {
                 ServiceEventSource.Current.Message("=== SimpleHttpCommunicationListener starting ===");
 
-                // Use a fixed port for testing
-                int port = 8081;
+                // Use the default HTTPS port unless the endpoint says otherwise.
+                int port = 443;
 
-                // Try to get port from endpoint, fallback to 8081
                 try
                 {
                     var endpoint = _serviceContext.CodePackageActivationContext.GetEndpoint("ServiceEndpoint");
@@ -60,12 +59,14 @@ namespace TRPDashboard
                 }
                 catch (Exception ex)
                 {
-                    ServiceEventSource.Current.Message($"Could not get endpoint port, using default 8081: {ex.Message}");
-                    port = 8081;
+                    ServiceEventSource.Current.Message($"Could not get endpoint port, using default 443: {ex.Message}");
+                    port = 443;
                 }
 
-                var listeningAddress = $"http://+:{port}/";
-                _publishAddress = $"http://localhost:{port}/";
+                // EndpointBindingPolicy in ApplicationManifest.xml binds the TLS cert
+                // to this port via http.sys; HttpListener picks the binding up automatically.
+                var listeningAddress = $"https://+:{port}/";
+                _publishAddress = $"https://localhost:{port}/";
 
                 ServiceEventSource.Current.Message($"Attempting to start HttpListener on: {listeningAddress}");
                 ServiceEventSource.Current.Message($"Publish address will be: {_publishAddress}");
