@@ -104,7 +104,7 @@ The dashboard exposes several endpoints for integration with your monitoring too
 |----------|-------------|---------|
 | `/` | Main dashboard interface | HTML |
 | `/health` | Cluster health summary | JSON |
-| `/health-dashboard` | Gerneral cluster information and health statuses | HTML |
+| `/health-dashboard` | General cluster information and health statuses | HTML |
 | `/test` | Service-specific Health Check Endpoint| HTML |
 
 ### Sample /health API Response
@@ -153,6 +153,23 @@ Modify the port in `ServiceManifest.xml` if needed:
 ```xml
 <Endpoint Name="ServiceEndpoint" Type="Input" Protocol="http" Port="8081" />
 ```
+
+## Security
+
+The dashboard binds to `http://+:8081/` (all network interfaces) with **no authentication**. Anyone who can reach port 8081 on a cluster node can:
+
+- View cluster topology (node names, IP/FQDN, fault/upgrade domains)
+- View deployed applications and services and their health states
+- Read host info: OS version, RAM, CPU count, installed .NET runtimes, Service Fabric runtime version
+
+The dashboard is **read-only** — it does not expose any mutation endpoints — but the information disclosed is still sensitive in untrusted networks.
+
+**Recommended deployment**:
+
+- Run on clusters whose network is already restricted (private VNet, on-prem segmented network, behind a corporate firewall).
+- Restrict port 8081 inbound traffic to operator subnets via Network Security Group / firewall rules.
+- If you need broader access, place the dashboard behind a reverse proxy that enforces authentication (e.g. nginx with OAuth2-proxy, Azure Application Gateway with AAD).
+- Do **not** expose the dashboard directly to the public internet.
 
 ## Troubleshooting
 
