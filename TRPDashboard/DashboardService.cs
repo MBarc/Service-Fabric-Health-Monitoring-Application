@@ -10,15 +10,19 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Microsoft.Win32;
 
 namespace TRPDashboard
 {
     public class DashboardService
     {
-        // Configuration - Department name that can be easily changed
-        private const string DEPARTMENT_NAME = "Internal Department Name";
+        // Configuration - Department name that can be easily changed.
+        // Public so the home page (TRPDashboard.cs) can render the same value.
+        public const string DEPARTMENT_NAME = "Internal Department Name";
 
         private readonly FabricClient _fabricClient;
         private readonly StatelessServiceContext _serviceContext;
@@ -29,24 +33,45 @@ namespace TRPDashboard
             _serviceContext = serviceContext;
         }
 
+        // Bound every Fabric query so a slow cluster manager cannot hang the HTTP listener.
+        private static readonly TimeSpan FabricQueryTimeout = TimeSpan.FromSeconds(3);
+
+        // Values that cannot change without restarting this process. Computed once per process,
+        // shared across every request (a new DashboardService is constructed per request).
+        // Host-installed .NET runtimes are deliberately NOT memoized — an admin can install one
+        // while the dashboard is running, and the operator wants to see that reflected.
+        private static readonly Lazy<string> CachedServiceFabricVersion = new Lazy<string>(ReadServiceFabricVersion);
+        private static readonly Lazy<string> CachedOperatingSystemInfo = new Lazy<string>(ReadOperatingSystemInfo);
+        private static readonly Lazy<string> CachedLocalIPAddress = new Lazy<string>(ReadLocalIPAddress);
+
         public async Task<string> GenerateDashboardHtml()
         {
-            var currentNode = await GetCurrentNodeAsync();
-            var applications = await GetApplicationsAsync();
-            var services = await GetServicesAsync();
-            var nodes = await GetNodesAsync();
-            var serviceFabricVersion = await GetServiceFabricVersionAsync();
+            // Kick off the two independent cluster-wide queries in parallel.
+            var nodesTask = GetNodesAsync(FabricQueryTimeout);
+            var applicationsTask = GetApplicationsAsync(FabricQueryTimeout);
+            await Task.WhenAll(nodesTask, applicationsTask);
+            var nodes = nodesTask.Result;
+            var applications = applicationsTask.Result;
+
+            // Fan out one service query per app, all in parallel.
+            var services = await GetServicesAsync(applications, FabricQueryTimeout);
+
+            // Local-only metadata: pure CPU / static file reads, no need to await.
+            var serviceFabricVersion = GetServiceFabricVersion();
             var dotNetVersion = GetDotNetVersion();
+            var dotNetFrameworkVersion = GetDotNetFrameworkVersion();
             var hardwareInfo = GetHardwareInfo();
             var osInfo = GetOperatingSystemInfo();
 
-            // Handle case where currentNode might be null
+            // Derive the current node from the already-fetched list (no extra round-trip).
+            var contextNodeName = _serviceContext.NodeContext.NodeName;
+            var currentNode = nodes.FirstOrDefault(n => n.NodeName == contextNodeName) ?? nodes.FirstOrDefault();
             var currentNodeName = currentNode?.NodeName ?? Environment.MachineName;
             var currentNodeIp = GetLocalIPAddress();
             var currentNodeHostname = Environment.MachineName;
 
-            // Format uptime safely
-            var uptime = TimeSpan.FromMilliseconds(Environment.TickCount);
+            // System uptime since boot. TickCount64 avoids the ~49-day int overflow of TickCount.
+            var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
             var uptimeString = $"{uptime.Days}d {uptime.Hours:D2}h {uptime.Minutes:D2}m {uptime.Seconds:D2}s";
 
             var html = $@"
@@ -60,9 +85,25 @@ namespace TRPDashboard
         {GetDashboardStyles()}
     </style>
     <script>
-        // Auto-refresh every 30 seconds
-        setTimeout(function(){{ location.reload(); }}, 30000);
-        
+        // Fetch the dashboard HTML and swap just the .container into place so scroll
+        // position, focus, and any in-flight toast survive the refresh.
+        async function refreshContent() {{
+            try {{
+                const res = await fetch(location.pathname, {{ cache: 'no-store' }});
+                if (!res.ok) return;
+                const html = await res.text();
+                const parsed = new DOMParser().parseFromString(html, 'text/html');
+                const fresh = parsed.querySelector('.container');
+                const current = document.querySelector('.container');
+                if (fresh && current) current.replaceWith(fresh);
+            }} catch (e) {{
+                // Swallow transient failures; the next tick will try again.
+            }}
+        }}
+
+        // Auto-refresh every 30 seconds.
+        setInterval(refreshContent, 30000);
+
         function copyToClipboard(text) {{
             navigator.clipboard.writeText(text).then(function() {{
                 const notification = document.createElement('div');
@@ -76,14 +117,14 @@ namespace TRPDashboard
         function refreshDashboard() {{
             const button = document.querySelector('.refresh-button');
             button.style.transform = 'rotate(360deg)';
-            setTimeout(() => {{ button.style.transform = ''; location.reload(); }}, 500);
+            setTimeout(() => {{ button.style.transform = ''; refreshContent(); }}, 500);
         }}
     </script>
 </head>
 <body>
     <header class='header'>
         <div class='header-content'>
-            <div class='department-name'>{DEPARTMENT_NAME}</div>
+            <div class='department-name'>{H(DEPARTMENT_NAME)}</div>
             <div class='cluster-name'>Service Fabric Cluster</div>
         </div>
     </header>
@@ -93,16 +134,16 @@ namespace TRPDashboard
         <div class='status-grid'>
             <div class='status-card'>
                 <h3>🖥️ Current Node</h3>
-                <div class='info-value copyable' onclick='copyToClipboard(""{currentNodeName}"")'>{currentNodeName}</div>
+                <div class='info-value copyable' onclick='copyToClipboard(""{J(currentNodeName)}"")'>{H(currentNodeName)}</div>
                 <div class='info-label'>Handling this request</div>
                 <div class='node-details'>
                     <div class='detail-item'>
                         <span class='detail-label'>IP Address:</span>
-                        <span class='detail-value copyable' onclick='copyToClipboard(""{currentNodeIp}"")'>{currentNodeIp}</span>
+                        <span class='detail-value copyable' onclick='copyToClipboard(""{J(currentNodeIp)}"")'>{H(currentNodeIp)}</span>
                     </div>
                     <div class='detail-item'>
                         <span class='detail-label'>Hostname:</span>
-                        <span class='detail-value copyable' onclick='copyToClipboard(""{currentNodeHostname}"")'>{currentNodeHostname}</span>
+                        <span class='detail-value copyable' onclick='copyToClipboard(""{J(currentNodeHostname)}"")'>{H(currentNodeHostname)}</span>
                     </div>
                     <div class='detail-item'>
                         <span class='detail-label'>CPU:</span>
@@ -114,21 +155,25 @@ namespace TRPDashboard
                     </div>
                 </div>
             </div>
-            
+
             <div class='status-card'>
                 <h3>💾 System Information</h3>
                 <div class='info-grid-compact'>
                     <div class='info-item-compact'>
                         <span class='info-label'>Service Fabric:</span>
-                        <span class='info-value-small'>{serviceFabricVersion}</span>
+                        <span class='info-value-small'>{H(serviceFabricVersion)}</span>
                     </div>
                     <div class='info-item-compact'>
-                        <span class='info-label'>.NET Version:</span>
-                        <span class='info-value-small'>{dotNetVersion}</span>
+                        <span class='info-label'>.NET Runtimes:</span>
+                        <span class='info-value-small'>{H(dotNetVersion)}</span>
+                    </div>
+                    <div class='info-item-compact'>
+                        <span class='info-label'>.NET Framework:</span>
+                        <span class='info-value-small'>{H(dotNetFrameworkVersion)}</span>
                     </div>
                     <div class='info-item-compact'>
                         <span class='info-label'>OS:</span>
-                        <span class='info-value-small'>{osInfo}</span>
+                        <span class='info-value-small'>{H(osInfo)}</span>
                     </div>
                     <div class='info-item-compact'>
                         <span class='info-label'>Uptime:</span>
@@ -163,20 +208,20 @@ namespace TRPDashboard
                 {string.Join("", applications.Select(app => $@"
                 <div class='application-item'>
                     <div class='application-header'>
-                        <div class='application-name'>{app.ApplicationName.ToString().Replace("fabric:/", "")}</div>
+                        <div class='application-name'>{H(app.ApplicationName.ToString().Replace("fabric:/", ""))}</div>
                         <div class='health-status {GetHealthCssClass(app.HealthState)}'>
                             <span class='status-indicator'></span>
                             {app.HealthState}
                         </div>
                     </div>
                     <div class='application-details'>
-                        <span class='app-type'>{app.ApplicationTypeName} v{app.ApplicationTypeVersion}</span>
+                        <span class='app-type'>{H(app.ApplicationTypeName)} v{H(app.ApplicationTypeVersion)}</span>
                     </div>
                     <div class='service-list'>
                         {string.Join("", services.Where(s => s.ServiceName.ToString().StartsWith(app.ApplicationName.ToString())).Select(service => $@"
                         <div class='service-item'>
-                            <span class='service-name'>{service.ServiceName.ToString().Replace(app.ApplicationName.ToString() + "/", "")}</span>
-                            <span class='service-type'>{service.ServiceKind} - {service.ServiceTypeName}</span>
+                            <span class='service-name'>{H(service.ServiceName.ToString().Replace(app.ApplicationName.ToString() + "/", ""))}</span>
+                            <span class='service-type'>{service.ServiceKind} - {H(service.ServiceTypeName)}</span>
                             <span class='health-status {GetHealthCssClass(service.HealthState)}'>
                                 <span class='status-indicator'></span>
                                 {service.HealthState}
@@ -195,7 +240,7 @@ namespace TRPDashboard
                 {string.Join("", nodes.Select(node => $@"
                 <div class='node-item'>
                     <div class='node-main'>
-                        <div class='node-name copyable' onclick='copyToClipboard(""{node.NodeName}"")'>{node.NodeName}</div>
+                        <div class='node-name copyable' onclick='copyToClipboard(""{J(node.NodeName)}"")'>{H(node.NodeName)}</div>
                         <div class='health-status {GetHealthCssClass(node.HealthState)}'>
                             <span class='status-indicator'></span>
                             {node.HealthState}
@@ -204,7 +249,7 @@ namespace TRPDashboard
                     <div class='node-details-grid'>
                         <div class='node-detail'>
                             <div class='info-label'>IP Address or FQDN</div>
-                            <div class='info-value copyable' onclick='copyToClipboard(""{node.IpAddressOrFQDN}"")'>{node.IpAddressOrFQDN}</div>
+                            <div class='info-value copyable' onclick='copyToClipboard(""{J(node.IpAddressOrFQDN)}"")'>{H(node.IpAddressOrFQDN)}</div>
                         </div>
                         <div class='node-detail'>
                             <div class='info-label'>Status</div>
@@ -212,11 +257,11 @@ namespace TRPDashboard
                         </div>
                         <div class='node-detail'>
                             <div class='info-label'>Fault Domain</div>
-                            <div class='info-value'>{node.FaultDomain?.ToString() ?? "N/A"}</div>
+                            <div class='info-value'>{H(node.FaultDomain?.ToString() ?? "N/A")}</div>
                         </div>
                         <div class='node-detail'>
                             <div class='info-label'>Upgrade Domain</div>
-                            <div class='info-value'>{node.UpgradeDomain?.ToString() ?? "N/A"}</div>
+                            <div class='info-value'>{H(node.UpgradeDomain ?? "N/A")}</div>
                         </div>
                     </div>
                 </div>"))}
@@ -238,139 +283,45 @@ namespace TRPDashboard
             return html;
         }
 
-        private string GetOperatingSystemInfo()
+        private string GetOperatingSystemInfo() => CachedOperatingSystemInfo.Value;
+
+        // Reads the OS marketing name Microsoft maintains per release at
+        // HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion. ProductName +
+        // DisplayVersion together carry strings like "Windows Server 2022 Datacenter 22H2",
+        // updated by Microsoft for every new SKU — no thresholds to maintain on our side.
+        private static string ReadOperatingSystemInfo()
         {
             try
             {
-                // Try to get a more user-friendly OS name
-                var osVersion = Environment.OSVersion;
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+                if (key == null) return "Windows (unknown)";
 
-                if (osVersion.Platform == PlatformID.Win32NT)
+                var productName = key.GetValue("ProductName") as string;
+                if (string.IsNullOrEmpty(productName)) return "Windows (unknown)";
+
+                // Microsoft never updated ProductName on Windows 11 client builds (>= 22000);
+                // it still reads "Windows 10 <edition>". Patch when we can confirm the build.
+                // Server SKUs report correctly, so this only kicks in on workstation installs.
+                if (productName.StartsWith("Windows 10", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(key.GetValue("CurrentBuildNumber") as string, out var build) &&
+                    build >= 22000)
                 {
-                    var version = osVersion.Version;
-
-                    // Windows version detection
-                    if (version.Major == 10)
-                    {
-                        if (version.Build >= 20348)
-                            return "Windows Server 2022";
-                        else if (version.Build >= 17763)
-                            return "Windows Server 2019";
-                        else if (version.Build >= 14393)
-                            return "Windows Server 2016";
-                        else if (version.Build >= 22000)
-                            return "Windows 11";
-                        else
-                            return "Windows 10";
-                    }
-                    else if (version.Major == 6)
-                    {
-                        if (version.Minor == 3)
-                            return "Windows Server 2012 R2";
-                        else if (version.Minor == 2)
-                            return "Windows Server 2012";
-                        else if (version.Minor == 1)
-                            return "Windows Server 2008 R2";
-                        else if (version.Minor == 0)
-                            return "Windows Server 2008";
-                    }
+                    productName = "Windows 11" + productName.Substring("Windows 10".Length);
                 }
 
-                // Fallback to the original OS version string but cleaned up
-                var osString = osVersion.ToString();
-                return osString.Replace("Microsoft Windows NT ", "Windows ");
+                var displayVersion = key.GetValue("DisplayVersion") as string;
+                return string.IsNullOrEmpty(displayVersion) ? productName : $"{productName} {displayVersion}";
             }
             catch
             {
-                return "Windows Server";
+                return "Windows (unknown)";
             }
         }
 
-        private Dictionary<string, string> GetAdditionalTRPInfo()
-        {
-            var info = new Dictionary<string, string>();
+        private string GetLocalIPAddress() => CachedLocalIPAddress.Value;
 
-            try
-            {
-                // Service Context Information
-                info["Service Instance ID"] = _serviceContext.InstanceId.ToString();
-                info["Partition ID"] = _serviceContext.PartitionId.ToString();
-                info["Service Type"] = _serviceContext.ServiceTypeName;
-                info["Code Package Version"] = _serviceContext.CodePackageActivationContext.CodePackageVersion;
-                info["Application Name"] = _serviceContext.CodePackageActivationContext.ApplicationName;
-                info["Application Type"] = _serviceContext.CodePackageActivationContext.ApplicationTypeName;
-
-                // Environment Information
-                info["Working Directory"] = Environment.CurrentDirectory;
-                info["Process ID"] = Environment.ProcessId.ToString();
-                info["User Domain"] = Environment.UserDomainName;
-                info["User Name"] = Environment.UserName;
-                info["64-bit Process"] = Environment.Is64BitProcess.ToString();
-                info["64-bit OS"] = Environment.Is64BitOperatingSystem.ToString();
-
-                // Network Information
-                try
-                {
-                    var hostName = Dns.GetHostName();
-                    info["Host Name"] = hostName;
-
-                    var addresses = Dns.GetHostAddresses(hostName);
-                    var ipv4Addresses = addresses.Where(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-                    info["All IPv4 Addresses"] = string.Join(", ", ipv4Addresses.Select(ip => ip.ToString()));
-                }
-                catch (Exception ex)
-                {
-                    info["Network Info"] = $"Error retrieving: {ex.Message}";
-                }
-
-                // Time Zone Information
-                info["Time Zone"] = TimeZoneInfo.Local.DisplayName;
-                info["UTC Offset"] = TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).ToString();
-
-                // Service Fabric Specific
-                info["Node Fault Domain"] = _serviceContext.NodeContext.NodeType;
-                info["Node Type"] = _serviceContext.NodeContext.NodeType;
-
-                // Dashboard Specific
-                info["Dashboard Endpoint"] = "http://localhost:8081/health-dashboard";
-                info["Health API Endpoint"] = "http://localhost:8081/health";
-                info["Service Fabric Explorer"] = "http://localhost:19080";
-
-            }
-            catch (Exception ex)
-            {
-                info["Error"] = $"Failed to retrieve additional info: {ex.Message}";
-            }
-
-            return info;
-        }
-
-        private async Task<Node> GetCurrentNodeAsync()
-        {
-            try
-            {
-                if (_fabricClient == null) return null;
-
-                var nodeList = await _fabricClient.QueryManager.GetNodeListAsync();
-                var currentNodeName = _serviceContext.NodeContext.NodeName;
-                var currentNode = nodeList.FirstOrDefault(n => n.NodeName == currentNodeName);
-
-                if (currentNode != null)
-                {
-                    return currentNode;
-                }
-
-                // If we can't find the current node, return the first available node
-                return nodeList.FirstOrDefault();
-            }
-            catch (Exception ex)
-            {
-                // If we can't get nodes from Fabric Client, return null and handle it in the calling code
-                return null;
-            }
-        }
-
-        private string GetLocalIPAddress()
+        private static string ReadLocalIPAddress()
         {
             try
             {
@@ -385,13 +336,13 @@ namespace TRPDashboard
             }
         }
 
-        private async Task<List<Application>> GetApplicationsAsync()
+        private async Task<List<Application>> GetApplicationsAsync(TimeSpan timeout)
         {
             try
             {
                 if (_fabricClient == null) return new List<Application>();
 
-                var applications = await _fabricClient.QueryManager.GetApplicationListAsync();
+                var applications = await _fabricClient.QueryManager.GetApplicationListAsync(null, timeout, CancellationToken.None);
                 return applications.ToList();
             }
             catch
@@ -400,33 +351,25 @@ namespace TRPDashboard
             }
         }
 
-        private async Task<List<Service>> GetServicesAsync()
+        private async Task<List<Service>> GetServicesAsync(IReadOnlyCollection<Application> applications, TimeSpan timeout)
+        {
+            if (_fabricClient == null || applications == null || applications.Count == 0)
+            {
+                return new List<Service>();
+            }
+
+            // Run all per-app service queries concurrently. One slow app cannot delay the others.
+            var tasks = applications.Select(app => GetServicesForAppAsync(app.ApplicationName, timeout)).ToList();
+            var results = await Task.WhenAll(tasks);
+            return results.SelectMany(r => r).ToList();
+        }
+
+        private async Task<List<Service>> GetServicesForAppAsync(Uri applicationName, TimeSpan timeout)
         {
             try
             {
-                if (_fabricClient == null) return new List<Service>();
-
-                var allServices = new List<Service>();
-
-                // First get all applications
-                var applications = await _fabricClient.QueryManager.GetApplicationListAsync();
-
-                // Then get services for each application
-                foreach (var app in applications)
-                {
-                    try
-                    {
-                        var services = await _fabricClient.QueryManager.GetServiceListAsync(app.ApplicationName);
-                        allServices.AddRange(services);
-                    }
-                    catch
-                    {
-                        // Skip this application if we can't get its services
-                        continue;
-                    }
-                }
-
-                return allServices;
+                var services = await _fabricClient.QueryManager.GetServiceListAsync(applicationName, null, timeout, CancellationToken.None);
+                return services.ToList();
             }
             catch
             {
@@ -434,13 +377,13 @@ namespace TRPDashboard
             }
         }
 
-        private async Task<List<Node>> GetNodesAsync()
+        private async Task<List<Node>> GetNodesAsync(TimeSpan timeout)
         {
             try
             {
                 if (_fabricClient == null) return new List<Node>();
 
-                var nodes = await _fabricClient.QueryManager.GetNodeListAsync();
+                var nodes = await _fabricClient.QueryManager.GetNodeListAsync(null, timeout, CancellationToken.None);
                 return nodes.ToList();
             }
             catch
@@ -449,14 +392,21 @@ namespace TRPDashboard
             }
         }
 
-        private async Task<string> GetServiceFabricVersionAsync()
+        private string GetServiceFabricVersion() => CachedServiceFabricVersion.Value;
+
+        private static string ReadServiceFabricVersion()
         {
             try
             {
-                if (_fabricClient == null) return "Unknown (Limited Mode)";
+                // The SF runtime sets %FabricCodePath% to the runtime install directory.
+                // FabricCommon.dll's file version tracks the actual runtime version on the node.
+                var fabricCodePath = Environment.GetEnvironmentVariable("FabricCodePath");
+                if (string.IsNullOrEmpty(fabricCodePath)) return "Unknown";
 
-                var clusterHealth = await _fabricClient.HealthManager.GetClusterHealthAsync();
-                return "11.1.208"; // Your specified runtime version
+                var dllPath = Path.Combine(fabricCodePath, "FabricCommon.dll");
+                if (!File.Exists(dllPath)) return "Unknown";
+
+                return FileVersionInfo.GetVersionInfo(dllPath).FileVersion ?? "Unknown";
             }
             catch
             {
@@ -464,11 +414,70 @@ namespace TRPDashboard
             }
         }
 
-        private string GetDotNetVersion()
+        private string GetDotNetVersion() => ReadHostDotNetRuntimes();
+
+        // Reports the .NET runtimes installed ON THE HOST, not the runtime bundled inside this
+        // self-contained service. RuntimeInformation.FrameworkDescription would only return the
+        // bundled version, which is frozen at build time and tells the operator nothing about
+        // the server they are looking at.
+        private static string ReadHostDotNetRuntimes()
         {
             try
             {
-                return RuntimeInformation.FrameworkDescription;
+                var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+                if (string.IsNullOrEmpty(dotnetRoot))
+                {
+                    dotnetRoot = @"C:\Program Files\dotnet";
+                }
+
+                var runtimeDir = Path.Combine(dotnetRoot, "shared", "Microsoft.NETCore.App");
+                if (!Directory.Exists(runtimeDir))
+                {
+                    return "Not Installed";
+                }
+
+                var versions = Directory.GetDirectories(runtimeDir)
+                    .Select(Path.GetFileName)
+                    .Where(v => !string.IsNullOrEmpty(v))
+                    .OrderByDescending(v => Version.TryParse(v, out var parsed) ? parsed : new Version(0, 0))
+                    .ToList();
+
+                return versions.Count == 0 ? "Not Installed" : string.Join(", ", versions);
+            }
+            catch
+            {
+                return "Not Installed";
+            }
+        }
+
+        private string GetDotNetFrameworkVersion() => ReadHostDotNetFramework();
+
+        // Reads the .NET Framework 4.x version installed on the host via the Release DWORD
+        // documented at https://learn.microsoft.com/dotnet/framework/migration-guide/how-to-determine-which-versions-are-installed.
+        // Server 2022 ships with 4.8 (528040+) or 4.8.1 (533320+) after recent updates.
+        private static string ReadHostDotNetFramework()
+        {
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using var ndpKey = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full");
+                if (ndpKey?.GetValue("Release") is not int release)
+                {
+                    return "Not Installed";
+                }
+
+                if (release >= 533320) return "4.8.1";
+                if (release >= 528040) return "4.8";
+                if (release >= 461808) return "4.7.2";
+                if (release >= 461308) return "4.7.1";
+                if (release >= 460798) return "4.7";
+                if (release >= 394802) return "4.6.2";
+                if (release >= 394254) return "4.6.1";
+                if (release >= 393295) return "4.6";
+                if (release >= 379893) return "4.5.2";
+                if (release >= 378675) return "4.5.1";
+                if (release >= 378389) return "4.5";
+                return $"4.x (Release {release})";
             }
             catch
             {
@@ -478,43 +487,34 @@ namespace TRPDashboard
 
         private HardwareInfo GetHardwareInfo()
         {
+            var info = new HardwareInfo { CpuCores = Environment.ProcessorCount };
+
             try
             {
-                var info = new HardwareInfo();
-
-                // Get CPU cores
-                info.CpuCores = Environment.ProcessorCount;
-
-                // Get memory information - simplified approach using GC
-                try
+                var mem = new NativeMethods.MEMORYSTATUSEX();
+                if (NativeMethods.GlobalMemoryStatusEx(mem))
                 {
-                    var gcMemoryInfo = GC.GetGCMemoryInfo();
-                    if (gcMemoryInfo.TotalAvailableMemoryBytes > 0)
-                    {
-                        info.TotalMemoryGB = gcMemoryInfo.TotalAvailableMemoryBytes / (1024.0 * 1024.0 * 1024.0);
-                        info.AvailableMemoryGB = info.TotalMemoryGB * 0.7; // Estimate available as 70% of total
-                    }
-                    else
-                    {
-                        // Fallback estimation
-                        info.TotalMemoryGB = 8.0; // Default assumption
-                        info.AvailableMemoryGB = 5.6;
-                    }
+                    const double BytesPerGB = 1024.0 * 1024.0 * 1024.0;
+                    info.TotalMemoryGB = mem.ullTotalPhys / BytesPerGB;
+                    info.AvailableMemoryGB = mem.ullAvailPhys / BytesPerGB;
                 }
-                catch
-                {
-                    // Fallback values
-                    info.TotalMemoryGB = 8.0;
-                    info.AvailableMemoryGB = 5.6;
-                }
-
-                return info;
             }
             catch
             {
-                return new HardwareInfo { CpuCores = Environment.ProcessorCount, TotalMemoryGB = 8.0, AvailableMemoryGB = 5.6 };
+                // Leave memory fields at 0 on failure; the UI shows the raw value.
             }
+
+            return info;
         }
+
+        // HTML-encode arbitrary text for inclusion in element content / attribute values.
+        private static string H(object value) => WebUtility.HtmlEncode(value?.ToString() ?? string.Empty);
+
+        // Encode arbitrary text safely inside a JavaScript string literal in an HTML attribute.
+        // JavaScriptEncoder produces valid JS; HtmlEncode then makes the encoded string safe
+        // for the surrounding HTML attribute (e.g. onclick='copyToClipboard("…")').
+        private static string J(object value)
+            => WebUtility.HtmlEncode(JavaScriptEncoder.Default.Encode(value?.ToString() ?? string.Empty));
 
         private string GetHealthCssClass(HealthState healthState)
         {
@@ -831,7 +831,8 @@ body {
     color: var(--primary-dark);
 }
 
-0.85rem;
+.service-type {
+    font-size: 0.85rem;
     color: var(--primary-gray);
 }
 
@@ -1013,5 +1014,27 @@ body {
         public int CpuCores { get; set; }
         public double TotalMemoryGB { get; set; }
         public double AvailableMemoryGB { get; set; }
+    }
+
+    internal static class NativeMethods
+    {
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public class MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+            public MEMORYSTATUSEX() { dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX)); }
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
     }
 }
