@@ -5,7 +5,7 @@ param(
     [string]$Configuration = "Debug",
     [string]$AppName = "fabric:/HealthMonitoring",
     [string]$AppTypeName = "HealthMonitoringType",
-    [string]$ClusterEndpoint = "REDACTED-HOSTNAME:19000"
+    [string]$ClusterEndpoint = "localhost:19000"
 )
 
 # Get script location

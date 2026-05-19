@@ -1,0 +1,35 @@
+# Build outputs
+bin/
+obj/
+pkg/
+
+# Service Fabric build artifacts
+**/PackageRoot/Code/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet user-global cache (not relevant in-repo but listed for clarity)
+.nuget/
+
+# Note: HealthMonitoring/packages/ IS tracked on purpose — the .sfproj imports
+# Microsoft.VisualStudio.Azure.Fabric.MSBuild from there at build time, and we want
+# fresh clones to build without requiring an external NuGet feed.
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# OS noise
+Thumbs.db
+.DS_Store

@@ -1,6 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PublishProfile xmlns="http://schemas.microsoft.com/2015/05/fabrictools">
-	<ClusterConnectionParameters ConnectionEndpoint="REDACTED-HOSTNAME:19000" />
+	<!-- Replace with your cluster endpoint, e.g. "mycluster.region.cloudapp.azure.com:19000".
+	     For secured clusters add X509Credential / ServerCertThumbprint / FindType / FindValue
+	     / StoreLocation / StoreName attributes. -->
+	<ClusterConnectionParameters ConnectionEndpoint="REPLACE_WITH_YOUR_CLUSTER:19000" />
 	<ApplicationParameterFile Path="..\ApplicationParameters\Cloud.xml" />
 	<CopyPackageParameters CompressPackage="true" />
 	<UpgradeDeployment Mode="Monitored" Enabled="true">
