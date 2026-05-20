@@ -103,20 +103,26 @@ $cert.Thumbprint
 
 Copy the thumbprint and paste it into `HealthMonitoring/ApplicationPackageRoot/ApplicationManifest.xml` under `<EndpointCertificate X509FindValue="…">`. For production, use a CA-signed certificate referenced the same way.
 
-### 3. Deploy to Your Cluster
-Pass the certificate's **subject name** (CN value) at deploy time. Service Fabric looks up the cert in `LocalMachine\My` on the host node and picks the most recent non-expired match — so cert rotations don't require redeployment.
+### 3. Build and Deploy
+The fastest path from a fresh clone to a running dashboard is one command:
 
 ```powershell
-# Local cluster, self-signed cert with CN=localhost
-.\Deploy-ServiceFabricApp.ps1 -CertFindValue "localhost"
+.\Build-And-Deploy.ps1 -CertFindValue "localhost"
+```
 
-# Remote cluster, reusing the cluster's existing cert
-.\Deploy-ServiceFabricApp.ps1 `
+This runs `dotnet publish`, assembles the SF application package, and invokes the deploy script in a single step. Same script handles remote clusters too:
+
+```powershell
+.\Build-And-Deploy.ps1 `
     -ClusterEndpoint "your-cluster:19000" `
     -CertFindValue "mycluster.example.com"
 ```
 
-The cert must exist in `LocalMachine\My` on every cluster node. The deploy package itself is cluster-agnostic — the same package deploys anywhere; only the subject name changes.
+Pass `-SkipBuild` to redeploy without rebuilding.
+
+`Build-And-Deploy.ps1` forwards `-ServerCertThumbprint`, `-ClientCertThumbprint`, and `-UseAAD` straight to the deploy script for secured clusters — see [Deployment Options](#deployment-options) for those modes.
+
+The cert (whose subject is passed via `-CertFindValue`) must exist in `LocalMachine\My` on every cluster node. The deploy package itself is cluster-agnostic — same package everywhere, only the subject changes.
 
 > **Prefer thumbprint lookup instead?** Edit `HealthMonitoring/ApplicationPackageRoot/ApplicationManifest.xml` and change `X509FindType="FindBySubjectName"` to `X509FindType="FindByThumbprint"`. Then pass the SHA1 thumbprint as `-CertFindValue`. Service Fabric's XSD doesn't allow parameterizing this attribute, so it's a manifest edit rather than a deploy-time flag.
 
