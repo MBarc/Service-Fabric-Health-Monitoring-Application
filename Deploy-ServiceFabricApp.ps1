@@ -27,8 +27,9 @@ param(
     [string]$ServerCertThumbprint,
 
     # Thumbprint of YOUR client certificate (X509 auth mode). The cert must
-    # exist in CurrentUser\My on the machine running this script and be
-    # trusted by the target cluster. Mutually exclusive with -UseAAD.
+    # exist in CurrentUser\My or LocalMachine\My on the machine running this
+    # script (we check both, CurrentUser first), and be trusted by the target
+    # cluster. Mutually exclusive with -UseAAD.
     [string]$ClientCertThumbprint,
 
     # Use Azure Active Directory authentication instead of client cert.
@@ -137,13 +138,25 @@ try {
             -ServerCertThumbprint $ServerCertThumbprint | Out-Null
     }
     elseif ($ClientCertThumbprint) {
-        Write-Host "  Auth mode: X509 client certificate" -ForegroundColor Gray
+        # Locate the client cert. CurrentUser takes precedence (matches the
+        # interactive deploy pattern); LocalMachine\My is the fallback for
+        # CI/CD where the script runs under a service account.
+        $clientCertStore = $null
+        if (Test-Path "Cert:\CurrentUser\My\$ClientCertThumbprint") {
+            $clientCertStore = "CurrentUser"
+        } elseif (Test-Path "Cert:\LocalMachine\My\$ClientCertThumbprint") {
+            $clientCertStore = "LocalMachine"
+        } else {
+            throw "Client certificate with thumbprint $ClientCertThumbprint was not found in CurrentUser\My or LocalMachine\My. Install it (and grant the current user read access to its private key) before deploying."
+        }
+
+        Write-Host "  Auth mode: X509 client certificate (from $clientCertStore\My)" -ForegroundColor Gray
         Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint `
             -X509Credential `
             -ServerCertThumbprint $ServerCertThumbprint `
             -FindType FindByThumbprint `
             -FindValue $ClientCertThumbprint `
-            -StoreLocation CurrentUser `
+            -StoreLocation $clientCertStore `
             -StoreName My | Out-Null
     }
     else {

@@ -185,7 +185,9 @@ Most production Service Fabric clusters require client-cert auth. The deploy scr
     -ClientCertThumbprint "<your-client-cert-thumbprint>"
 ```
 
-The client certificate must be installed in `CurrentUser\My` on the machine running the deploy script, and the cluster must trust it (typically configured at cluster creation via the cluster's `ClientCertificateThumbprints` setting).
+The client certificate must be installed in **`CurrentUser\My` or `LocalMachine\My`** on the machine running the deploy script (the script checks both, `CurrentUser` first). The cluster must trust the cert — typically configured at cluster creation via the cluster's `ClientCertificateThumbprints` setting.
+
+> `LocalMachine\My` is the common case for CI/CD agents running as a service account; `CurrentUser\My` is typical for interactive deploys from a developer machine.
 
 ### Option 5: Secured Cluster (Azure Active Directory)
 For Azure SF clusters with AAD integration enabled:
