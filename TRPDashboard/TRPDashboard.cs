@@ -48,6 +48,15 @@ namespace TRPDashboard
             {
                 ServiceEventSource.Current.Message("=== SimpleHttpCommunicationListener starting ===");
 
+                // Resolve the cluster name once for the browser-tab title (best-effort).
+                try
+                {
+                    FabricClient fc = null;
+                    try { fc = new FabricClient(); } catch { }
+                    HealthUi.ClusterName = HealthUi.ResolveClusterName(fc, _serviceContext);
+                }
+                catch { }
+
                 // Use the default HTTPS port unless the endpoint says otherwise.
                 int port = 443;
 
@@ -212,44 +221,21 @@ namespace TRPDashboard
 
         private string GenerateServiceFabricExplorerRedirect()
         {
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Service Fabric Explorer - Redirect</title>
-    <style>
-        body {{ font-family: 'Segoe UI', sans-serif; margin: 40px; background: #f8f9fa; }}
-        .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        h1 {{ color: #003f7f; }}
-        .redirect-info {{ background: #e8f4f8; padding: 20px; border-radius: 6px; margin: 20px 0; }}
-        .link {{ display: inline-block; padding: 10px 20px; background: #003f7f; color: white; text-decoration: none; border-radius: 4px; margin: 10px 5px; }}
-        .link:hover {{ background: #0066cc; }}
-    </style>
-    <script>
-        // Auto-redirect after 3 seconds
-        setTimeout(function() {{
-            window.open('http://localhost:19080', '_blank');
-        }}, 3000);
-    </script>
-</head>
-<body>
+            var body = @"
     <div class='container'>
-        <h1>Service Fabric Explorer</h1>
-        <div class='redirect-info'>
-            <p><strong>Redirecting to Service Fabric Explorer...</strong></p>
-            <p>You will be redirected to the Service Fabric Explorer in 3 seconds.</p>
-            <p>If the redirect doesn't work, click the link below:</p>
+        <div class='page-head'><h1>Service Fabric Explorer</h1></div>
+        <div class='card'>
+            <p>Redirecting to Service Fabric Explorer in 3 seconds...</p>
+            <p class='muted'>If it doesn't open automatically, use the link below.</p>
+            <div class='nav-links'>
+                <a class='btn' href='http://localhost:19080' target='_blank'>Open Service Fabric Explorer</a>
+                <a class='btn' href='/health-dashboard'>Back to dashboard</a>
+            </div>
+            <p class='muted' style='margin-top:14px'>Explorer URL: http://localhost:19080 (opens in a new tab).</p>
         </div>
-        <a href='http://localhost:19080' target='_blank' class='link'>Open Service Fabric Explorer</a>
-        <a href='/health-dashboard' class='link'>Back to Dashboard</a>
-        
-        <div style='margin-top: 30px; color: #6c757d; font-size: 0.9em;'>
-            <p><strong>Service Fabric Explorer URL:</strong> http://localhost:19080</p>
-            <p>This will open in a new tab/window for easy navigation between the dashboard and explorer.</p>
-        </div>
-    </div>
-</body>
-</html>";
+    </div>";
+            var head = @"<script>setTimeout(function(){ window.open('http://localhost:19080', '_blank'); }, 3000);</script>";
+            return HealthUi.Layout("Service Fabric Explorer", body, head);
         }
 
         private static readonly JsonSerializerOptions HealthJsonOptions = new JsonSerializerOptions { WriteIndented = true };
@@ -272,140 +258,77 @@ namespace TRPDashboard
 
         private string GenerateTestPage()
         {
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Service Fabric Health Dashboard - Test Endpoint</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
-        .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        h1 {{ color: #003087; }}
-        .info-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }}
-        .info-item {{ padding: 10px; background: #f8f9fa; border-left: 4px solid #0066CC; }}
-        .nav-links {{ margin-top: 30px; }}
-        .nav-links a {{ display: inline-block; margin-right: 20px; padding: 10px 20px; background: #003087; color: white; text-decoration: none; border-radius: 4px; }}
-        .nav-links a:hover {{ background: #0066CC; }}
-    </style>
-</head>
-<body>
+            var body = $@"
     <div class='container'>
-        <h1>Service Fabric Health Dashboard - Test Endpoint</h1>
-        <p><strong>Status:</strong> Service is running correctly!</p>
-        <p><strong>Time:</strong> {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
-        
-        <div class='info-grid'>
-            <div class='info-item'>
-                <strong>Service Name:</strong><br>{_serviceContext.ServiceName}
+        <div class='page-head'>
+            <h1>Test Endpoint</h1>
+            <div class='sub'>Service is running correctly.</div>
+        </div>
+        <div class='card'>
+            <p class='muted'>Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
+            <div class='info-grid'>
+                <div class='info-item'><strong>Service</strong><br>{WebUtility.HtmlEncode(_serviceContext.ServiceName.ToString())}</div>
+                <div class='info-item'><strong>Node</strong><br>{WebUtility.HtmlEncode(_serviceContext.NodeContext.NodeName)}</div>
+                <div class='info-item'><strong>Instance ID</strong><br>{_serviceContext.InstanceId}</div>
+                <div class='info-item'><strong>Application</strong><br>{WebUtility.HtmlEncode(_serviceContext.CodePackageActivationContext.ApplicationName)}</div>
             </div>
-            <div class='info-item'>
-                <strong>Node Name:</strong><br>{_serviceContext.NodeContext.NodeName}
-            </div>
-            <div class='info-item'>
-                <strong>Instance ID:</strong><br>{_serviceContext.InstanceId}
-            </div>
-            <div class='info-item'>
-                <strong>Application:</strong><br>{_serviceContext.CodePackageActivationContext.ApplicationName}
+            <div class='nav-links'>
+                <a class='btn' href='/health-dashboard'>Health Dashboard</a>
+                <a class='btn' href='/health'>Health API</a>
+                <a class='btn' href='/'>Home</a>
             </div>
         </div>
-        
-        <div class='nav-links'>
-            <a href='/health-dashboard'>Health Dashboard</a>
-            <a href='/health'>Health API</a>
-            <a href='/'>Home</a>
-        </div>
-    </div>
-</body>
-</html>";
+    </div>";
+            return HealthUi.Layout("Test endpoint", body);
         }
 
         private string GenerateHomePage()
         {
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Service Fabric Health Dashboard - Home</title>
-    <style>
-        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: linear-gradient(135deg, #0066CC 0%, #003087 100%); min-height: 100vh; }}
-        .container {{ max-width: 1000px; margin: 0 auto; padding: 40px 20px; }}
-        .header {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); margin-bottom: 30px; text-align: center; border-left: 6px solid #003087; }}
-        .header h1 {{ color: #003087; font-size: 2.5em; margin-bottom: 10px; font-weight: 700; }}
-        .header h2 {{ color: #001F5C; font-size: 1.5em; margin-bottom: 20px; font-weight: 400; }}
-        .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
-        .card {{ background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); border-left: 6px solid #0066CC; }}
-        .card h3 {{ color: #003087; margin-bottom: 15px; }}
-        .card p {{ color: #6B7280; line-height: 1.6; }}
-        .btn {{ display: inline-block; padding: 12px 24px; background: #003087; color: white; text-decoration: none; border-radius: 6px; margin-top: 15px; font-weight: 600; }}
-        .btn:hover {{ background: #0066CC; }}
-        .status {{ background: #10B981; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.9em; }}
-    </style>
-</head>
-<body>
+            var body = $@"
     <div class='container'>
-        <div class='header'>
-            <h1>{System.Net.WebUtility.HtmlEncode(DashboardService.DEPARTMENT_NAME)}</h1>
-            <h2>Service Fabric Health Dashboard</h2>
-            <span class='status'>Service Running</span>
-            <p style='margin-top: 15px; color: #6B7280;'>Last Updated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
+        <div class='page-head'>
+            <h1>Service Fabric Health Dashboard</h1>
+            <div class='sub'>Last updated {DateTime.Now:yyyy-MM-dd HH:mm:ss}</div>
         </div>
-        
         <div class='cards'>
             <div class='card'>
                 <h3>Health Dashboard</h3>
-                <p>Comprehensive view of Service Fabric cluster health, including applications, services, and nodes. Monitor system performance and hardware information.</p>
-                <a href='/health-dashboard' class='btn'>View Health Dashboard</a>
+                <p>Cluster health at a glance: applications, services, and nodes, plus system performance and hardware information.</p>
+                <a class='btn' href='/health-dashboard'>View health dashboard →</a>
             </div>
-            
             <div class='card'>
                 <h3>Health API</h3>
-                <p>JSON endpoint for programmatic access to service health information. Useful for monitoring tools and automated systems.</p>
-                <a href='/health' class='btn'>View Health API</a>
+                <p>JSON endpoint for programmatic access to service health - useful for monitoring tools and automated systems.</p>
+                <a class='btn' href='/health'>View health API →</a>
             </div>
-            
             <div class='card'>
                 <h3>Test Endpoint</h3>
-                <p>Verify service connectivity and view basic service information. Useful for troubleshooting and service validation.</p>
-                <a href='/test' class='btn'>Run Test</a>
+                <p>Verify service connectivity and view basic service information for troubleshooting and validation.</p>
+                <a class='btn' href='/test'>Run test →</a>
             </div>
         </div>
-    </div>
-</body>
-</html>";
+    </div>";
+            return HealthUi.Layout("Home", body);
         }
 
         private string GenerateErrorPage(string pageName, Exception ex)
         {
             // Detail is logged via ServiceEventSource by the caller. The client only sees
             // a generic page — never the exception type, message, or stack trace.
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Service Fabric Health Dashboard - Error</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f8f9fa; }}
-        .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .error {{ background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 20px; border-radius: 5px; margin: 20px 0; }}
-        h1 {{ color: #721c24; }}
-        .nav-links a {{ display: inline-block; margin-right: 15px; padding: 8px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
-    </style>
-</head>
-<body>
+            var body = $@"
     <div class='container'>
-        <h1>{pageName} unavailable</h1>
-        <div class='error'>
-            <p>The dashboard could not render this page. The error has been logged for the operator.</p>
-            <p>Time (UTC): {DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</p>
+        <div class='page-head'><h1>{WebUtility.HtmlEncode(pageName)} unavailable</h1></div>
+        <div class='banner err'>The dashboard could not render this page. The error has been logged for the operator.</div>
+        <div class='card'>
+            <p class='muted'>Time (UTC): {DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</p>
+            <div class='nav-links'>
+                <a class='btn' href='/health'>Health check</a>
+                <a class='btn' href='/test'>Test endpoint</a>
+                <a class='btn' href='/'>Home</a>
+            </div>
         </div>
-        <div class='nav-links'>
-            <a href='/health'>Health Check</a>
-            <a href='/test'>Test Endpoint</a>
-            <a href='/'>Home</a>
-        </div>
-    </div>
-</body>
-</html>";
+    </div>";
+            return HealthUi.Layout("Error", body);
         }
 
         public Task CloseAsync(CancellationToken cancellationToken)
