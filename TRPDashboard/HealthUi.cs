@@ -103,7 +103,7 @@ a:hover{text-decoration:underline}
 .container{max-width:1400px;margin:0 auto;padding:20px 24px}
 
 /* page heading */
-.page-head{margin-bottom:18px}
+.page-head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}
 .page-head h1{font-size:24px;font-weight:300;color:#fff;letter-spacing:.2px}
 .page-head .sub{color:var(--muted);font-size:13px;margin-top:4px}
 
@@ -186,6 +186,11 @@ a:hover{text-decoration:underline}
 
 .copyable{cursor:pointer;padding:2px 5px;border-radius:4px;transition:background-color .15s ease}
 .copyable:hover{background:rgba(0,117,201,.18);color:#fff}
+
+/* export panel: always shown, sits in the page-head row aligned with the title */
+.export-panel{display:inline-flex;align-items:center;gap:10px;flex:0 0 auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;box-shadow:var(--shadow)}
+.export-fmt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.export-fmt select{padding:4px 6px;background:#1f1f1f;color:#fff;border:1px solid var(--line2);border-radius:var(--radius)}
 
 /* landing cards */
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}

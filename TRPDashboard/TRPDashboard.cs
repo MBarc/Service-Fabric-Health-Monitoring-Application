@@ -162,6 +162,9 @@ namespace TRPDashboard
                         responseText = GenerateHealthJson();
                         response.ContentType = "application/json";
                         break;
+                    case "/export":
+                        responseText = await GenerateExport(request.QueryString["format"], response);
+                        break;
                     case "/test":
                         responseText = GenerateTestPage();
                         response.ContentType = "text/html";
@@ -236,6 +239,21 @@ namespace TRPDashboard
     </div>";
             var head = @"<script>setTimeout(function(){ window.open('http://localhost:19080', '_blank'); }, 3000);</script>";
             return HealthUi.Layout("Service Fabric Explorer", body, head);
+        }
+
+        // Builds a downloadable cluster-health snapshot and sets the attachment headers. The body
+        // is returned to HandleRequest, which writes it as UTF-8 (matching the other routes).
+        private async Task<string> GenerateExport(string format, HttpListenerResponse response)
+        {
+            FabricClient fabricClient = null;
+            try { fabricClient = new FabricClient(); }
+            catch (Exception ex) { ServiceEventSource.Current.FabricClientCreationFailed(ex.Message); }
+
+            var dashboardService = new DashboardService(fabricClient, _serviceContext);
+            var export = await dashboardService.GenerateExportAsync(format);
+            response.ContentType = export.ContentType;
+            response.AddHeader("Content-Disposition", $"attachment; filename=\"{export.FileName}\"");
+            return export.Body;
         }
 
         private static readonly JsonSerializerOptions HealthJsonOptions = new JsonSerializerOptions { WriteIndented = true };

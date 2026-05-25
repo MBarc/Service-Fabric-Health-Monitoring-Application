@@ -11,6 +11,7 @@ using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -110,13 +111,30 @@ namespace TRPDashboard
             button.style.transform = 'rotate(360deg)';
             setTimeout(() => {{ button.style.transform = ''; refreshContent(); }}, 500);
         }}
+
+        function downloadExport() {{
+            const f = document.getElementById('exportFormat').value;
+            window.location.href = '/export?format=' + encodeURIComponent(f);
+        }}
     </script>";
 
             var body = $@"
     <div class='container'>
         <div class='page-head'>
-            <h1>Cluster Overview</h1>
-            <div class='sub'>Coordinating from node <strong>{H(currentNodeName)}</strong></div>
+            <div class='page-head-titles'>
+                <h1>Cluster Overview</h1>
+                <div class='sub'>Coordinating from node <strong>{H(currentNodeName)}</strong></div>
+            </div>
+            <div class='export-panel'>
+                <label class='export-fmt'>Format
+                    <select id='exportFormat'>
+                        <option value='csv'>CSV</option>
+                        <option value='json'>JSON</option>
+                        <option value='txt'>Text (.txt)</option>
+                    </select>
+                </label>
+                <button class='btn' onclick='downloadExport()'>Download</button>
+            </div>
         </div>
         <!-- Status Overview Cards -->
         <div class='status-grid'>
@@ -267,6 +285,104 @@ namespace TRPDashboard
     </button>";
 
             return HealthUi.Layout("Service Fabric Health Dashboard", body, scripts);
+        }
+
+        // Builds a downloadable cluster-health snapshot (applications, services, nodes) in the
+        // requested format. Returns the suggested filename, MIME type, and body for the response.
+        public async Task<(string FileName, string ContentType, string Body)> GenerateExportAsync(string format)
+        {
+            var apps = await GetApplicationsAsync(FabricQueryTimeout);
+            var services = await GetServicesAsync(apps, FabricQueryTimeout);
+            var nodes = await GetNodesAsync(FabricQueryTimeout);
+            var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+
+            switch ((format ?? "csv").ToLowerInvariant())
+            {
+                case "json":
+                    return ($"cluster-health-{stamp}.json", "application/json", ExportJson(apps, services, nodes));
+                case "txt":
+                    return ($"cluster-health-{stamp}.txt", "text/plain; charset=utf-8", ExportTxt(apps, services, nodes));
+                default:
+                    return ($"cluster-health-{stamp}.csv", "text/csv; charset=utf-8", ExportCsv(apps, services, nodes));
+            }
+        }
+
+        private static string ExportJson(List<Application> apps, List<Service> services, List<Node> nodes)
+        {
+            var payload = new
+            {
+                generatedUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                applications = apps.Select(a => new {
+                    name = a.ApplicationName?.ToString(),
+                    typeName = a.ApplicationTypeName,
+                    typeVersion = a.ApplicationTypeVersion,
+                    healthState = a.HealthState.ToString()
+                }),
+                services = services.Select(s => new {
+                    name = s.ServiceName?.ToString(),
+                    typeName = s.ServiceTypeName,
+                    kind = s.ServiceKind.ToString(),
+                    healthState = s.HealthState.ToString()
+                }),
+                nodes = nodes.Select(n => new {
+                    name = n.NodeName,
+                    ipAddressOrFQDN = n.IpAddressOrFQDN,
+                    status = n.NodeStatus.ToString(),
+                    healthState = n.HealthState.ToString(),
+                    faultDomain = n.FaultDomain?.ToString(),
+                    upgradeDomain = n.UpgradeDomain
+                })
+            };
+            return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        private static string ExportCsv(List<Application> apps, List<Service> services, List<Node> nodes)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Applications");
+            sb.AppendLine("Name,TypeName,TypeVersion,HealthState");
+            foreach (var a in apps)
+                sb.AppendLine(string.Join(",", Csv(a.ApplicationName?.ToString()), Csv(a.ApplicationTypeName), Csv(a.ApplicationTypeVersion), Csv(a.HealthState.ToString())));
+            sb.AppendLine();
+            sb.AppendLine("Services");
+            sb.AppendLine("Name,TypeName,Kind,HealthState");
+            foreach (var s in services)
+                sb.AppendLine(string.Join(",", Csv(s.ServiceName?.ToString()), Csv(s.ServiceTypeName), Csv(s.ServiceKind.ToString()), Csv(s.HealthState.ToString())));
+            sb.AppendLine();
+            sb.AppendLine("Nodes");
+            sb.AppendLine("Name,IpAddressOrFQDN,Status,HealthState,FaultDomain,UpgradeDomain");
+            foreach (var n in nodes)
+                sb.AppendLine(string.Join(",", Csv(n.NodeName), Csv(n.IpAddressOrFQDN), Csv(n.NodeStatus.ToString()), Csv(n.HealthState.ToString()), Csv(n.FaultDomain?.ToString()), Csv(n.UpgradeDomain)));
+            return sb.ToString();
+        }
+
+        // Quote a CSV field if it contains a comma, quote, or newline; double embedded quotes.
+        private static string Csv(string v)
+        {
+            v ??= "";
+            return (v.Contains(',') || v.Contains('"') || v.Contains('\n') || v.Contains('\r'))
+                ? "\"" + v.Replace("\"", "\"\"") + "\""
+                : v;
+        }
+
+        private static string ExportTxt(List<Application> apps, List<Service> services, List<Node> nodes)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Service Fabric Cluster Health");
+            sb.AppendLine("Generated (UTC): " + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+            sb.AppendLine();
+            sb.AppendLine($"APPLICATIONS ({apps.Count})");
+            foreach (var a in apps)
+                sb.AppendLine($"  {a.ApplicationName?.ToString()?.Replace("fabric:/", "")}  [{a.HealthState}]  {a.ApplicationTypeName} v{a.ApplicationTypeVersion}");
+            sb.AppendLine();
+            sb.AppendLine($"SERVICES ({services.Count})");
+            foreach (var s in services)
+                sb.AppendLine($"  {s.ServiceName?.ToString()?.Replace("fabric:/", "")}  [{s.HealthState}]  {s.ServiceKind}/{s.ServiceTypeName}");
+            sb.AppendLine();
+            sb.AppendLine($"NODES ({nodes.Count})");
+            foreach (var n in nodes)
+                sb.AppendLine($"  {n.NodeName}  [{n.HealthState}]  {n.NodeStatus}  {n.IpAddressOrFQDN}  FD={n.FaultDomain} UD={n.UpgradeDomain}");
+            return sb.ToString();
         }
 
         private string GetOperatingSystemInfo() => CachedOperatingSystemInfo.Value;
