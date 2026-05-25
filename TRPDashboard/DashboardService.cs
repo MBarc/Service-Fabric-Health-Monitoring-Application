@@ -498,22 +498,41 @@ namespace TRPDashboard
 
         private static string ReadServiceFabricVersion()
         {
+            // 1) %FabricCodePath% (set by a full runtime install) -> FabricCommon.dll file version.
             try
             {
-                // The SF runtime sets %FabricCodePath% to the runtime install directory.
-                // FabricCommon.dll's file version tracks the actual runtime version on the node.
                 var fabricCodePath = Environment.GetEnvironmentVariable("FabricCodePath");
-                if (string.IsNullOrEmpty(fabricCodePath)) return "Unknown";
-
-                var dllPath = Path.Combine(fabricCodePath, "FabricCommon.dll");
-                if (!File.Exists(dllPath)) return "Unknown";
-
-                return FileVersionInfo.GetVersionInfo(dllPath).FileVersion ?? "Unknown";
+                var v = VersionFromCodePath(fabricCodePath);
+                if (!string.IsNullOrEmpty(v)) return v;
             }
-            catch
+            catch { }
+
+            // 2) Registry fallback. SDK dev clusters often don't set %FabricCodePath%, but the
+            //    runtime still records its version + code path under HKLM. FabricVersion is
+            //    authoritative; otherwise read FabricCommon.dll under the registry's FabricCodePath.
+            try
             {
-                return "Unknown";
+                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Service Fabric"))
+                {
+                    if (key != null)
+                    {
+                        if (key.GetValue("FabricVersion") is string ver && !string.IsNullOrEmpty(ver)) return ver;
+                        var v = VersionFromCodePath(key.GetValue("FabricCodePath") as string);
+                        if (!string.IsNullOrEmpty(v)) return v;
+                    }
+                }
             }
+            catch { }
+
+            return "Unknown";
+        }
+
+        // FabricCommon.dll's file version tracks the node's installed runtime version.
+        private static string VersionFromCodePath(string fabricCodePath)
+        {
+            if (string.IsNullOrEmpty(fabricCodePath)) return null;
+            var dllPath = Path.Combine(fabricCodePath, "FabricCommon.dll");
+            return File.Exists(dllPath) ? FileVersionInfo.GetVersionInfo(dllPath).FileVersion : null;
         }
 
         private string GetDotNetVersion() => ReadHostDotNetRuntimes();
