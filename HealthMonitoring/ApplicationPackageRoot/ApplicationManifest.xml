@@ -9,9 +9,16 @@
          Pass at deploy time via -CertFindValue, e.g. "localhost" or "mycluster.example.com".
          Defaults to empty so deployment fails fast if the operator forgets. -->
     <Parameter Name="CertFindValue" DefaultValue="" />
+    <!-- Reverse-proxy fronting (optional; for https://host:19081/HealthMonitoring/TRPDashboard/...).
+         Leave blank to auto-derive the URL prefix from the service's Fabric name; set only to
+         override. This dashboard has no mTLS gate, so no forwarded-cert settings are needed. -->
+    <Parameter Name="PublicPathBase" DefaultValue="" />
   </Parameters>
   <ServiceManifestImport>
     <ServiceManifestRef ServiceManifestName="TRPDashboardPkg" ServiceManifestVersion="1.0.30" />
+    <EnvironmentOverrides CodePackageRef="Code">
+      <EnvironmentVariable Name="HealthMonitoring_PublicPathBase" Value="[PublicPathBase]" />
+    </EnvironmentOverrides>
     <Policies>
       <!-- Binds the TLS cert below to the ServiceEndpoint. SF performs
            `netsh http add sslcert` automatically when the service activates

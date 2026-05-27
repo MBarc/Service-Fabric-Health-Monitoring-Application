@@ -131,6 +131,21 @@ Navigate to `https://your-cluster-node` in your browser. (No port suffix — the
 
 That's it! The dashboard is now running on your Service Fabric cluster.
 
+### Behind the Service Fabric reverse proxy
+To serve the dashboard on a shared port alongside sibling apps, front it with the
+[SF reverse proxy](https://learn.microsoft.com/en-us/azure/service-fabric/service-fabric-reverseproxy-setup)
+(default port **19081**). It routes by a fixed path:
+
+```
+https://<node>:19081/HealthMonitoring/TRPDashboard/health-dashboard
+```
+
+The dashboard emits prefix-relative links (via a `<base href>` derived from its own Fabric service
+name), so they round-trip correctly through the proxy with no configuration. The optional
+`PublicPathBase` parameter overrides the auto-derived prefix if a front door adds a different one.
+This dashboard has **no mTLS gate**, so no client-cert forwarding settings are involved — if you
+want it gated like the sibling apps, that's a separate addition.
+
 ## API Endpoints
 
 The dashboard exposes several endpoints for integration with your monitoring tools:

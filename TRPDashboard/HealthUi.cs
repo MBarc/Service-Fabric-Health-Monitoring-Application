@@ -21,6 +21,12 @@ namespace TRPDashboard
         // Cluster identity shown in every tab title; set once at startup by the listener.
         public static string ClusterName = "";
 
+        // Public URL prefix the app is served under (e.g. "/HealthMonitoring/TRPDashboard" behind the
+        // SF reverse proxy, or "" at the root). Set once at startup by the listener. Emitted as a
+        // <base href> so every relative link/form/fetch resolves under it regardless of the current
+        // route's depth — the one knob that makes the UI prefix-correct behind the proxy.
+        public static string PathBase = "";
+
         // The real Service Fabric orange-hexagon logo (favicon.png, 24x24, transparent), as served
         // by the local Service Fabric Explorer. Embedded as a base64 PNG data URI and reused for
         // both the browser-tab favicon and the command-bar brand mark - no binary asset, no route.
@@ -52,6 +58,24 @@ namespace TRPDashboard
             return ctx?.NodeContext?.IPAddressOrFQDN ?? Environment.MachineName;
         }
 
+        // The public URL prefix for emitted links. Precedence: explicit HealthMonitoring_PublicPathBase
+        // override -> the service's own Fabric name path (which is exactly the SF reverse-proxy prefix,
+        // e.g. fabric:/HealthMonitoring/TRPDashboard -> "/HealthMonitoring/TRPDashboard") -> empty
+        // (direct access). Normalized to a leading slash and no trailing slash; "" means "served at root".
+        public static string ResolvePathBase(StatelessServiceContext ctx)
+        {
+            var raw = Environment.GetEnvironmentVariable("HealthMonitoring_PublicPathBase");
+            if (string.IsNullOrWhiteSpace(raw))
+                raw = ctx?.ServiceName?.AbsolutePath;
+
+            raw = (raw ?? "").Trim().Trim('/');
+            return raw.Length == 0 ? "" : "/" + raw;
+        }
+
+        // <base> so every relative link/form/fetch resolves under the public prefix. Always ends in a
+        // slash ("/HealthMonitoring/TRPDashboard/" or "/"), which is what relative resolution needs.
+        private static string BaseTag() => $"<base href='{H((PathBase ?? "").TrimEnd('/') + "/")}'>";
+
         public static string Layout(string title, string body, string headExtra = "")
         {
             return $@"<!DOCTYPE html>
@@ -59,6 +83,7 @@ namespace TRPDashboard
 <head>
     <meta charset='UTF-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    {BaseTag()}
     <title>Health{(string.IsNullOrEmpty(ClusterName) ? "" : " | " + H(ClusterName))}</title>
     {FaviconLink}
     <style>{Styles()}</style>

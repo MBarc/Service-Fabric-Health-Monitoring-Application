@@ -17,6 +17,13 @@
 				<WorkingFolder>CodePackage</WorkingFolder>
 			</ExeHost>
 		</EntryPoint>
+		<EnvironmentVariables>
+			<!-- Set when fronting the dashboard with the SF reverse proxy
+			     (https://host:19081/HealthMonitoring/TRPDashboard/...). URL prefix emitted in links;
+			     blank = derive from the service's own Fabric name (which is exactly the proxy path).
+			     Blank also = direct access at https://host:443/. -->
+			<EnvironmentVariable Name="HealthMonitoring_PublicPathBase" Value="" />
+		</EnvironmentVariables>
 	</CodePackage>
 
 	<!-- Config package removed since we're not using Settings.xml -->

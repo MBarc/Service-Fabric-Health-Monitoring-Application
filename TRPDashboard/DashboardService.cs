@@ -114,7 +114,7 @@ namespace TRPDashboard
 
         function downloadExport() {{
             const f = document.getElementById('exportFormat').value;
-            window.location.href = '/export?format=' + encodeURIComponent(f);
+            window.location.href = 'export?format=' + encodeURIComponent(f);
         }}
     </script>";
 

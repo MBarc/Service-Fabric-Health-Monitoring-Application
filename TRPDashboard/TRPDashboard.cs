@@ -57,6 +57,12 @@ namespace TRPDashboard
                 }
                 catch { }
 
+                // URL prefix the browser reaches us under. Behind the SF reverse proxy this is the
+                // service's Fabric path (fabric:/HealthMonitoring/TRPDashboard -> "/HealthMonitoring/
+                // TRPDashboard"); emitted links carry it so they round-trip through the proxy. Direct
+                // access keeps it empty.
+                HealthUi.PathBase = HealthUi.ResolvePathBase(_serviceContext);
+
                 // Use the default HTTPS port unless the endpoint says otherwise.
                 int port = 443;
 
@@ -232,7 +238,7 @@ namespace TRPDashboard
             <p class='muted'>If it doesn't open automatically, use the link below.</p>
             <div class='nav-links'>
                 <a class='btn' href='http://localhost:19080' target='_blank'>Open Service Fabric Explorer</a>
-                <a class='btn' href='/health-dashboard'>Back to dashboard</a>
+                <a class='btn' href='health-dashboard'>Back to dashboard</a>
             </div>
             <p class='muted' style='margin-top:14px'>Explorer URL: http://localhost:19080 (opens in a new tab).</p>
         </div>
@@ -291,9 +297,9 @@ namespace TRPDashboard
                 <div class='info-item'><strong>Application</strong><br>{WebUtility.HtmlEncode(_serviceContext.CodePackageActivationContext.ApplicationName)}</div>
             </div>
             <div class='nav-links'>
-                <a class='btn' href='/health-dashboard'>Health Dashboard</a>
-                <a class='btn' href='/health'>Health API</a>
-                <a class='btn' href='/'>Home</a>
+                <a class='btn' href='health-dashboard'>Health Dashboard</a>
+                <a class='btn' href='health'>Health API</a>
+                <a class='btn' href='.'>Home</a>
             </div>
         </div>
     </div>";
@@ -312,17 +318,17 @@ namespace TRPDashboard
             <div class='card'>
                 <h3>Health Dashboard</h3>
                 <p>Cluster health at a glance: applications, services, and nodes, plus system performance and hardware information.</p>
-                <a class='btn' href='/health-dashboard'>View health dashboard →</a>
+                <a class='btn' href='health-dashboard'>View health dashboard →</a>
             </div>
             <div class='card'>
                 <h3>Health API</h3>
                 <p>JSON endpoint for programmatic access to service health - useful for monitoring tools and automated systems.</p>
-                <a class='btn' href='/health'>View health API →</a>
+                <a class='btn' href='health'>View health API →</a>
             </div>
             <div class='card'>
                 <h3>Test Endpoint</h3>
                 <p>Verify service connectivity and view basic service information for troubleshooting and validation.</p>
-                <a class='btn' href='/test'>Run test →</a>
+                <a class='btn' href='test'>Run test →</a>
             </div>
         </div>
     </div>";
@@ -340,9 +346,9 @@ namespace TRPDashboard
         <div class='card'>
             <p class='muted'>Time (UTC): {DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</p>
             <div class='nav-links'>
-                <a class='btn' href='/health'>Health check</a>
-                <a class='btn' href='/test'>Test endpoint</a>
-                <a class='btn' href='/'>Home</a>
+                <a class='btn' href='health'>Health check</a>
+                <a class='btn' href='test'>Test endpoint</a>
+                <a class='btn' href='.'>Home</a>
             </div>
         </div>
     </div>";
