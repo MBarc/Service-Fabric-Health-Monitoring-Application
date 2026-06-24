@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Fabric;
+using System.Fabric.Description;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -42,6 +43,18 @@ namespace TRPDashboard
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
+        // Scheme the listener binds and the published address uses, taken from the SF endpoint
+        // declaration. Https unless the package was deployed unsecured (Endpoint Protocol="http").
+        private string ResolveScheme()
+        {
+            try
+            {
+                var ep = _serviceContext.CodePackageActivationContext.GetEndpoint("ServiceEndpoint");
+                return ep.Protocol == EndpointProtocol.Https ? "https" : "http";
+            }
+            catch { return "https"; }
+        }
+
         public Task<string> OpenAsync(CancellationToken cancellationToken)
         {
             try
@@ -63,8 +76,13 @@ namespace TRPDashboard
                 // access keeps it empty.
                 HealthUi.PathBase = HealthUi.ResolvePathBase(_serviceContext);
 
-                // Use the default HTTPS port unless the endpoint says otherwise.
-                int port = 443;
+                // Scheme + port come straight from the SF endpoint declaration. Https normally;
+                // http when the package was deployed unsecured (Build-And-Deploy.ps1 -Unsecured flips
+                // the endpoint Protocol to http and strips the cert binding). Default port 8472 is the
+                // dashboard's dedicated port - chosen, like the sibling apps' 8470/8444, so it doesn't
+                // collide with another node service's http.sys binding on a shared node.
+                string scheme = ResolveScheme();
+                int port = 8472;
 
                 try
                 {
@@ -74,14 +92,15 @@ namespace TRPDashboard
                 }
                 catch (Exception ex)
                 {
-                    ServiceEventSource.Current.Message($"Could not get endpoint port, using default 443: {ex.Message}");
-                    port = 443;
+                    ServiceEventSource.Current.Message($"Could not get endpoint port, using default 8472: {ex.Message}");
+                    port = 8472;
                 }
 
-                // EndpointBindingPolicy in ApplicationManifest.xml binds the TLS cert
-                // to this port via http.sys; HttpListener picks the binding up automatically.
-                var listeningAddress = $"https://+:{port}/";
-                _publishAddress = $"https://localhost:{port}/";
+                // For an HTTPS endpoint, EndpointBindingPolicy in ApplicationManifest.xml binds the TLS
+                // cert to this port via http.sys and HttpListener picks the binding up automatically.
+                // For an unsecured (http) endpoint there is no binding to pick up - plain HTTP.
+                var listeningAddress = $"{scheme}://+:{port}/";
+                _publishAddress = $"{scheme}://localhost:{port}/";
 
                 ServiceEventSource.Current.Message($"Attempting to start HttpListener on: {listeningAddress}");
                 ServiceEventSource.Current.Message($"Publish address will be: {_publishAddress}");

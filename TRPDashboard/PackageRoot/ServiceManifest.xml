@@ -21,7 +21,7 @@
 			<!-- Set when fronting the dashboard with the SF reverse proxy
 			     (https://host:19081/HealthMonitoring/TRPDashboard/...). URL prefix emitted in links;
 			     blank = derive from the service's own Fabric name (which is exactly the proxy path).
-			     Blank also = direct access at https://host:443/. -->
+			     Blank also = direct access at https://host:8472/. -->
 			<EnvironmentVariable Name="HealthMonitoring_PublicPathBase" Value="" />
 		</EnvironmentVariables>
 	</CodePackage>
@@ -30,10 +30,14 @@
 
 	<Resources>
 		<Endpoints>
-			<!-- This endpoint is used by the communication listener to obtain the port on which to 
-           listen. Please note that if your service is partitioned, this port is shared with 
-           replicas of different partitions that are placed in your code. -->
-			<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="https" Port="443" />
+			<!-- Internal HTTPS port. The dashboard is reached either directly (https://<node>:8472/)
+           or through the SF reverse proxy (https://<lb>:19081/HealthMonitoring/TRPDashboard/...).
+           Port 8472 (not 443) is dedicated to this app so it can run alongside the sibling apps
+           (FabricShark 8470, FabricSight 8444) on a shared node without an http.sys binding
+           collision, and so it never rebinds the node's shared 0.0.0.0:443 sslcert. SF binds the
+           TLS cert to this port via EndpointBindingPolicy in ApplicationManifest. Build-And-Deploy
+           -Unsecured rewrites this to Protocol="http" for an unsecured-cluster deploy. -->
+			<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="https" Port="8472" />
 		</Endpoints>
 	</Resources>
 </ServiceManifest>

@@ -8,12 +8,18 @@ param(
     [string]$ClusterEndpoint = "localhost:19000",
 
     # Subject name (CN value) of the TLS cert that SF should bind to the dashboard's
-    # 443 endpoint. SF does substring matching against certs in LocalMachine\My on
+    # 8472 endpoint. SF does substring matching against certs in LocalMachine\My on
     # the node where the service activates, then picks the most recent non-expired
     # match. Examples: "localhost" (dev), "mycluster.example.com" (prod).
     # The cert must exist in LocalMachine\My on every cluster node.
-    [Parameter(Mandatory=$true)]
-    [string]$CertFindValue,
+    # Required for a secured (HTTPS) deploy; ignored (and not needed) with -Unsecured.
+    [string]$CertFindValue = "",
+
+    # Deploy a plain-HTTP package built for an unsecured cluster (no TLS cert). The package
+    # must have been assembled with Build-And-Deploy.ps1 -Unsecured (which rewrites the endpoint
+    # to http and strips the cert binding). The dashboard has no auth gate, so this only changes
+    # the transport. The dashboard is then UNENCRYPTED. Dev / isolated clusters only.
+    [switch]$Unsecured,
 
     # ------------------------------------------------------------------
     # Optional cluster-auth params. Omit all three for an unsecured cluster
@@ -33,9 +39,24 @@ param(
     [string]$ClientCertThumbprint,
 
     # Use Azure Active Directory authentication instead of client cert.
-    # Triggers an interactive sign-in (browser pop-up) the first time, then
-    # caches the token. Mutually exclusive with -ClientCertThumbprint.
-    [switch]$UseAAD
+    # Triggers an INTERACTIVE sign-in (browser pop-up) the first time, then
+    # caches the token. For non-interactive CI/CD use -UseAADServicePrincipal.
+    # Mutually exclusive with -ClientCertThumbprint and -UseAADServicePrincipal.
+    [switch]$UseAAD,
+
+    # Non-interactive Azure AD (Entra) auth for CI/CD - Octopus, Azure DevOps, GitHub Actions.
+    # The pipeline has already signed in a service principal (an Az / Azure CLI context exists);
+    # this pulls a cluster-scoped token from that context and connects with it, so the SP secret
+    # or cert never touches this script (and OIDC / workload-identity federation works too).
+    # Requires -ServerCertThumbprint. Mutually exclusive with -UseAAD and -ClientCertThumbprint.
+    [switch]$UseAADServicePrincipal,
+
+    # The cluster's AAD resource (App ID URI / audience the admin AD group is assigned to). Leave
+    # blank to auto-discover it from the cluster's anonymous GetAadMetadata endpoint.
+    [string]$AadClusterResource = "",
+
+    # Escape hatch: a pre-acquired AAD bearer token to connect with, skipping discovery + acquisition.
+    [string]$SecurityToken = ""
 )
 
 # Validate auth combinations early so we fail with a clear message rather
@@ -45,6 +66,19 @@ if ($UseAAD -and $ClientCertThumbprint) {
 }
 if (($UseAAD -or $ClientCertThumbprint) -and -not $ServerCertThumbprint) {
     throw "Secured-cluster auth requires -ServerCertThumbprint so the deploy client can validate the cluster's TLS cert."
+}
+# Non-interactive AAD (service principal) is one of the auth modes, not a modifier - it can't be
+# combined with the others, and it still needs the server cert thumbprint for TLS validation.
+if ($UseAADServicePrincipal -and ($UseAAD -or $ClientCertThumbprint)) {
+    throw "Pick one auth mode: -UseAADServicePrincipal (non-interactive AAD for CI/CD), -UseAAD (interactive AAD), or -ClientCertThumbprint (X509)."
+}
+if ($UseAADServicePrincipal -and -not $ServerCertThumbprint) {
+    throw "-UseAADServicePrincipal requires -ServerCertThumbprint so the deploy client can validate the cluster's TLS cert."
+}
+# -Unsecured is about the app's own transport (plain HTTP, no cert); it is independent of how we
+# authenticate to the cluster above. A secured (HTTPS) deploy still needs the endpoint cert subject.
+if (-not $Unsecured -and -not $CertFindValue) {
+    throw "-CertFindValue is required for a secured (HTTPS) deployment. For a plain-HTTP deploy to an unsecured cluster, pass -Unsecured (and build the package with Build-And-Deploy.ps1 -Unsecured)."
 }
 
 # Get script location
@@ -128,11 +162,85 @@ try {
     exit 1
 }
 
+# --- Azure AD (Entra) non-interactive auth helpers (CI/CD service principal) -------------------
+# The cluster token must be scoped to the cluster's own Entra app (its App ID URI / audience).
+# Service Fabric publishes that anonymously at the HTTP gateway, so we discover it rather than
+# hardcoding. TLS to the gateway is pinned to -ServerCertThumbprint when the cert isn't already trusted.
+function Resolve-SfAadResource {
+    param(
+        [Parameter(Mandatory)][string]$ClusterEndpoint,
+        [string]$ServerCertThumbprint
+    )
+    $hostName = ($ClusterEndpoint -split ':')[0]
+    $metaUrl  = "https://${hostName}:19080/`$/GetAadMetadata?api-version=1.0"
+
+    $prev = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+    if ($ServerCertThumbprint) {
+        $allowed = @($ServerCertThumbprint -split '[,;]' | ForEach-Object { ($_ -replace '[^0-9A-Fa-f]','').ToUpper() } | Where-Object { $_ })
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
+            param($snd, $cert, $chain, $sslErrors)
+            if ($sslErrors -eq [System.Net.Security.SslPolicyErrors]::None) { return $true }
+            return $allowed -contains $cert.GetCertHashString().ToUpper()
+        }.GetNewClosure()
+    }
+    try {
+        $meta = Invoke-RestMethod -Uri $metaUrl -Method Get
+    } finally {
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $prev
+    }
+    $resource = $meta.metadata.cluster
+    if (-not $resource) {
+        throw "GetAadMetadata at $metaUrl did not return a cluster AAD resource. Pass -AadClusterResource explicitly (the cluster app's App ID URI)."
+    }
+    return $resource
+}
+
+# Pulls a token for $Resource from the pipeline's already-authenticated context: the Az PowerShell
+# module first (ADO 'Azure PowerShell' task, GHA azure/login, Octopus Az), then the Azure CLI.
+function Get-SfAmbientAadToken {
+    param([Parameter(Mandatory)][string]$Resource)
+
+    if (Get-Command Get-AzAccessToken -ErrorAction SilentlyContinue) {
+        try {
+            $t = Get-AzAccessToken -ResourceUrl $Resource -ErrorAction Stop
+            $raw = $t.Token
+            if ($raw -is [System.Security.SecureString]) {
+                $raw = [System.Net.NetworkCredential]::new('', $raw).Password
+            }
+            if ($raw) { return $raw }
+        } catch {
+            Write-Host "  Get-AzAccessToken failed ($($_.Exception.Message)); trying Azure CLI..." -ForegroundColor Yellow
+        }
+    }
+    if (Get-Command az -ErrorAction SilentlyContinue) {
+        $tok = az account get-access-token --resource $Resource --query accessToken -o tsv 2>$null
+        if ($LASTEXITCODE -eq 0 -and $tok) { return $tok.Trim() }
+    }
+    throw "No ambient Azure context to get a token from. Run the pipeline's Azure login step first (Connect-AzAccount / az login as the service principal); Az.Accounts or the Azure CLI must be on PATH."
+}
+
 # Connect to Service Fabric cluster
 Write-Host "`nConnecting to Service Fabric cluster: $ClusterEndpoint..." -ForegroundColor Yellow
 try {
-    if ($UseAAD) {
-        Write-Host "  Auth mode: Azure Active Directory" -ForegroundColor Gray
+    if ($UseAADServicePrincipal) {
+        Write-Host "  Auth mode: Azure AD service principal (non-interactive; ambient pipeline context)" -ForegroundColor Gray
+        $token = $SecurityToken
+        if (-not $token) {
+            $resource = $AadClusterResource
+            if (-not $resource) {
+                Write-Host "  Discovering cluster AAD resource via GetAadMetadata..." -ForegroundColor Gray
+                $resource = Resolve-SfAadResource -ClusterEndpoint $ClusterEndpoint -ServerCertThumbprint $ServerCertThumbprint
+            }
+            Write-Host "  Cluster AAD resource: $resource" -ForegroundColor Gray
+            $token = Get-SfAmbientAadToken -Resource $resource
+        }
+        Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint `
+            -AzureActiveDirectory `
+            -ServerCertThumbprint $ServerCertThumbprint `
+            -SecurityToken $token | Out-Null
+    }
+    elseif ($UseAAD) {
+        Write-Host "  Auth mode: Azure Active Directory (interactive)" -ForegroundColor Gray
         Connect-ServiceFabricCluster -ConnectionEndpoint $ClusterEndpoint `
             -AzureActiveDirectory `
             -ServerCertThumbprint $ServerCertThumbprint | Out-Null
@@ -262,7 +370,11 @@ try {
 }
 
 Write-Host "`nCreating application instance..." -ForegroundColor Yellow
-Write-Host "  Cert subject name: $CertFindValue" -ForegroundColor Gray
+if ($Unsecured) {
+    Write-Host "  Transport:         UNSECURED (plain HTTP, no cert)" -ForegroundColor Yellow
+} else {
+    Write-Host "  Cert subject name: $CertFindValue" -ForegroundColor Gray
+}
 try {
     $appParams = @{ CertFindValue = $CertFindValue }
     New-ServiceFabricApplication -ApplicationName $AppName -ApplicationTypeName $AppTypeName -ApplicationTypeVersion $version -ApplicationParameter $appParams
@@ -299,28 +411,10 @@ try {
     $services = Get-ServiceFabricService -ApplicationName $AppName
     foreach ($service in $services) {
         Write-Host "Service: $($service.ServiceName) - Status: $($service.ServiceStatus)" -ForegroundColor Green
-        
-        # Try to get the service endpoint for the dashboard
-        if ($service.ServiceName -like "*TRPDashboard*") {
-            try {
-                $partitions = Get-ServiceFabricPartition -ServiceName $service.ServiceName
-                foreach ($partition in $partitions) {
-                    $replicas = Get-ServiceFabricReplica -PartitionId $partition.PartitionId
-                    foreach ($replica in $replicas) {
-                        if ($replica.ReplicaAddress) {
-                            $address = $replica.ReplicaAddress | ConvertFrom-Json
-                            if ($address.Endpoints -and $address.Endpoints.ServiceEndpoint) {
-                                Write-Host "Dashboard URL: $($address.Endpoints.ServiceEndpoint)" -ForegroundColor Cyan
-                            }
-                        }
-                    }
-                }
-            } catch {
-                Write-Host "Service is still starting up..." -ForegroundColor Yellow
-                Write-Host "Try accessing the service through the cluster nodes in a few moments" -ForegroundColor Gray
-            }
-        }
     }
+    $dashScheme = if ($Unsecured) { "http" } else { "https" }
+    Write-Host "`nDashboard (direct, per node): ${dashScheme}://<node>:8472/health-dashboard" -ForegroundColor Cyan
+    Write-Host "Dashboard (via SF reverse proxy): ${dashScheme}://<lb-or-node>:19081/HealthMonitoring/TRPDashboard/health-dashboard" -ForegroundColor Gray
 } catch {
     Write-Host "Application is still starting up. Check Service Fabric Explorer for details." -ForegroundColor Yellow
 }

@@ -83,7 +83,7 @@ cd service-fabric-dashboard
 ```
 
 ### 2. Provision a TLS Certificate
-The dashboard binds port 443 with TLS. Service Fabric needs a certificate to bind. For development or internal clusters, generate a self-signed cert:
+For a secured (HTTPS) deploy the dashboard binds port 8472 with TLS, and Service Fabric needs a certificate to bind. For development or internal clusters, generate a self-signed cert (skip this step entirely for an unsecured/plain-HTTP deploy — see [Unsecured clusters](#unsecured-clusters)):
 
 ```powershell
 $cert = New-SelfSignedCertificate `
@@ -122,12 +122,24 @@ Pass `-SkipBuild` to redeploy without rebuilding.
 
 `Build-And-Deploy.ps1` forwards `-ServerCertThumbprint`, `-ClientCertThumbprint`, and `-UseAAD` straight to the deploy script for secured clusters — see [Deployment Options](#deployment-options) for those modes.
 
+#### Unsecured clusters
+For an unsecured / isolated dev cluster, deploy plain HTTP with no certificate anywhere:
+
+```powershell
+.\Build-And-Deploy.ps1 -Unsecured
+```
+
+`-Unsecured` rewrites the endpoint to `http` and strips the cert binding, so no `-CertFindValue`
+and no TLS certificate are needed. The dashboard then serves `http://<node>:8472/` (and routes the
+same way through the reverse proxy). It is **UNENCRYPTED** — use only on isolated/dev clusters.
+This mirrors the sibling apps (FabricShark / FabricSight), which take the same `-Unsecured` flag.
+
 The cert (whose subject is passed via `-CertFindValue`) must exist in `LocalMachine\My` on every cluster node. The deploy package itself is cluster-agnostic — same package everywhere, only the subject changes.
 
 > **Prefer thumbprint lookup instead?** Edit `HealthMonitoring/ApplicationPackageRoot/ApplicationManifest.xml` and change `X509FindType="FindBySubjectName"` to `X509FindType="FindByThumbprint"`. Then pass the SHA1 thumbprint as `-CertFindValue`. Service Fabric's XSD doesn't allow parameterizing this attribute, so it's a manifest edit rather than a deploy-time flag.
 
 ### 4. Access the Dashboard
-Navigate to `https://your-cluster-node` in your browser. (No port suffix — the dashboard listens on the standard HTTPS port.)
+Navigate to `https://your-cluster-node:8472/health-dashboard` in your browser (or `http://…:8472/` for an unsecured deploy). The dashboard uses its own dedicated port (8472) so it can coexist with the sibling apps on a shared node; to reach it on a standard load-balancer port, front it with the reverse proxy (below).
 
 That's it! The dashboard is now running on your Service Fabric cluster.
 
@@ -234,12 +246,12 @@ private const string DEPARTMENT_NAME = "Your Organization Name";
 ### Port Configuration
 Modify the port in `ServiceManifest.xml` if needed:
 ```xml
-<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="https" Port="443" />
+<Endpoint Name="ServiceEndpoint" Type="Input" Protocol="https" Port="8472" />
 ```
 
 ## Security
 
-The dashboard binds to `https://+:443/` (all network interfaces) with **TLS but no authentication**. Anyone who can reach port 443 on a cluster node — and accepts the TLS certificate — can:
+For a secured deploy the dashboard binds to `https://+:8472/` (all network interfaces) with **TLS but no authentication** (an `-Unsecured` deploy is plain `http://+:8472/`). Anyone who can reach port 8472 on a cluster node — and accepts the TLS certificate — can:
 
 - View cluster topology (node names, IP/FQDN, fault/upgrade domains)
 - View deployed applications and services and their health states
@@ -250,7 +262,7 @@ The dashboard is **read-only** — it does not expose any mutation endpoints —
 **Recommended deployment**:
 
 - Run on clusters whose network is already restricted (private VNet, on-prem segmented network, behind a corporate firewall).
-- Restrict port 443 inbound traffic to operator subnets via Network Security Group / firewall rules.
+- Restrict port 8472 inbound traffic to operator subnets via Network Security Group / firewall rules.
 - Provision a real CA-signed TLS certificate for production (the sample setup uses a self-signed dev cert in `LocalMachine\My`, referenced by thumbprint in `ApplicationManifest.xml`).
 - If you need broader access, place the dashboard behind a reverse proxy that enforces authentication (e.g. nginx with OAuth2-proxy, Azure Application Gateway with AAD).
 - Do **not** expose the dashboard directly to the public internet.
@@ -261,7 +273,7 @@ The dashboard is **read-only** — it does not expose any mutation endpoints —
 
 **Dashboard not accessible:**
 - Verify Service Fabric cluster is running
-- Check firewall settings for port 443
+- Check firewall settings for port 8472
 - Ensure the application deployed successfully
 
 **Deployment fails:**
